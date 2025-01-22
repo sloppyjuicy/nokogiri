@@ -1,4 +1,4 @@
-# encoding: UTF-8
+# encoding: utf-8
 # frozen_string_literal: true
 
 require "helper"
@@ -8,8 +8,10 @@ module Nokogiri
     class TestNodeEncoding < Nokogiri::TestCase
       def test_serialize_encoding_xml
         @xml = Nokogiri::XML(File.open(SHIFT_JIS_XML))
-        assert_equal(@xml.encoding.downcase,
-          @xml.serialize.encoding.name.downcase)
+        assert_equal(
+          @xml.encoding.downcase,
+          @xml.serialize.encoding.name.downcase,
+        )
 
         @doc = Nokogiri::XML(@xml.serialize)
         assert_equal(@xml.serialize, @doc.serialize)
@@ -34,6 +36,22 @@ module Nokogiri
         assert_equal(utf8, frag.to_xml.sub(/^<.xml[^>]*>\n/m, "").strip)
 
         frag = Nokogiri::XML(expected, nil, "US-ASCII", Nokogiri::XML::ParseOptions::STRICT)
+        assert_equal(expected, frag.to_xml.sub(/^<.xml[^>]*>\n/m, "").strip)
+      end
+
+      def test_encoding_GH_1113_with_kwargs
+        utf8 = "<frag>shahid ὡ 𐄣 𢂁</frag>"
+        hex = "<frag>shahid &#x1f61; &#x10123; &#x22081;</frag>"
+        decimal = "<frag>shahid &#8033; &#65827; &#139393;</frag>"
+        expected = Nokogiri.jruby? ? hex : decimal
+
+        frag = Nokogiri::XML(utf8, encoding: "UTF-8", options: Nokogiri::XML::ParseOptions::STRICT)
+        assert_equal(utf8, frag.to_xml.sub(/^<.xml[^>]*>\n/m, "").strip)
+
+        frag = Nokogiri::XML(expected, encoding: "UTF-8", options: Nokogiri::XML::ParseOptions::STRICT)
+        assert_equal(utf8, frag.to_xml.sub(/^<.xml[^>]*>\n/m, "").strip)
+
+        frag = Nokogiri::XML(expected, encoding: "US-ASCII", options: Nokogiri::XML::ParseOptions::STRICT)
         assert_equal(expected, frag.to_xml.sub(/^<.xml[^>]*>\n/m, "").strip)
       end
 

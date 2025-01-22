@@ -386,8 +386,11 @@ module Nokogiri
 
                 inserted = dest_node.add_child(source_node)
 
-                assert_equal("attrval", inserted.attribute_with_ns("attr", "ns2")&.value,
-                  "inserted node attribute should be namespaced")
+                assert_equal(
+                  "attrval",
+                  inserted.attribute_with_ns("attr", "ns2")&.value,
+                  "inserted node attribute should be namespaced",
+                )
               end
             end
           end
@@ -421,7 +424,7 @@ module Nokogiri
                       "xmlns" => "http://tenderlovemaking.com/",
                       "xmlns:foo" => "http://flavorjon.es/",
                     },
-                    reparented.namespaces
+                    reparented.namespaces,
                   )
                 end
               end
@@ -443,7 +446,7 @@ module Nokogiri
                       "xmlns:foo" => "http://flavorjon.es/",
                       "xmlns:baz" => "http://tenderlovemaking.com/",
                     },
-                    reparented.namespaces
+                    reparented.namespaces,
                   )
                 end
               end
@@ -469,7 +472,7 @@ module Nokogiri
                       "xmlns" => "http://tenderlovemaking.com/",
                       "xmlns:foo" => "http://flavorjon.es/",
                     },
-                    reparented.namespaces
+                    reparented.namespaces,
                   )
                 end
               end
@@ -490,7 +493,7 @@ module Nokogiri
                       "xmlns" => "http://tenderlovemaking.com/",
                       "xmlns:foo" => "http://flavorjon.es/",
                     },
-                    reparented.namespaces
+                    reparented.namespaces,
                   )
                 end
               end
@@ -511,7 +514,7 @@ module Nokogiri
                       "xmlns" => "http://flavorjon.es/",
                       "xmlns:foo" => "http://flavorjon.es/",
                     },
-                    reparented.namespaces
+                    reparented.namespaces,
                   )
                 end
               end
@@ -533,7 +536,7 @@ module Nokogiri
                       "xmlns:foo" => "http://flavorjon.es/",
                       "xmlns:baz" => "http://flavorjon.es/",
                     },
-                    reparented.namespaces
+                    reparented.namespaces,
                   )
                 end
               end
@@ -558,7 +561,7 @@ module Nokogiri
                     "xmlns:foo" => "http://flavorjon.es/",
                     "xmlns:baz" => "http://tenderlovemaking.com/",
                   },
-                  reparented.namespaces
+                  reparented.namespaces,
                 )
               end
             end
@@ -603,7 +606,7 @@ module Nokogiri
           end
 
           it "should remove the child node after the operation" do
-            fragment = Nokogiri::HTML::DocumentFragment.parse("a<a>b</a>")
+            fragment = Nokogiri::HTML4::DocumentFragment.parse("a<a>b</a>")
             node = fragment.children.last
             node.add_previous_sibling(node.children)
             assert_empty node.children, "should have no childrens"
@@ -670,7 +673,9 @@ module Nokogiri
             it "should not merge text nodes during the operation" do
               xml = Nokogiri::XML(%(<root>text node</root>))
               replacee = xml.root.children.first
+
               replacee.replace("new text node")
+
               assert_equal "new text node", xml.root.children.first.content
             end
           end
@@ -679,7 +684,9 @@ module Nokogiri
             doc = Nokogiri::XML(%{<parent><child>text})
             replacee = doc.at_css("child")
             replacer = doc.create_comment("<b>text</b>")
+
             replacee.replace(replacer)
+
             assert_equal 1, doc.root.children.length
             assert_equal replacer, doc.root.children.first
           end
@@ -688,9 +695,24 @@ module Nokogiri
             doc = Nokogiri::XML(%{<parent><child>text})
             replacee = doc.at_css("child")
             replacer = doc.create_cdata("<b>text</b>")
+
             replacee.replace(replacer)
+
             assert_equal 1, doc.root.children.length
             assert_equal replacer, doc.root.children.first
+          end
+
+          it "replacing a child should not dup sibling text nodes" do
+            # https://github.com/sparklemotion/nokogiri/issues/2916
+            xml = "<root><parent>asdf</parent>qwer</root>"
+            doc = Nokogiri::XML.parse(xml)
+            nodes = doc.root.children
+            parent = nodes.first
+            sibling = parent.next
+
+            parent.inner_html = "foo"
+
+            assert_same(sibling, parent.next)
           end
 
           describe "when a document has a default namespace" do
@@ -756,14 +778,18 @@ module Nokogiri
 
         describe "reparenting and preserving a reference to the original ns" do
           it "should not cause illegal memory access" do
-            # this test will only cause a failure in valgrind. it
-            # drives out the reason why we can't call xmlFreeNs in
-            # relink_namespace and instead have to root the nsdef.
-            doc = Nokogiri::XML('<root xmlns="http://flavorjon.es/"><envelope /></root>')
-            elem = doc.create_element("package", { "xmlns" => "http://flavorjon.es/" })
-            ns = elem.namespace_definitions
-            doc.at_css("envelope").add_child(elem)
-            ns.inspect
+            skip_unless_libxml2("valgrind tests should only run with libxml2")
+
+            refute_valgrind_errors do
+              # this test will only cause a failure in valgrind. it
+              # drives out the reason why we can't call xmlFreeNs in
+              # relink_namespace and instead have to root the nsdef.
+              doc = Nokogiri::XML('<root xmlns="http://flavorjon.es/"><envelope /></root>')
+              elem = doc.create_element("package", { "xmlns" => "http://flavorjon.es/" })
+              ns = elem.namespace_definitions
+              doc.at_css("envelope").add_child(elem)
+              ns.inspect
+            end
           end
         end
 

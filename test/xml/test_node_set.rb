@@ -173,8 +173,8 @@ module Nokogiri
             set = xml.xpath("//staff")
 
             [
-              [:xpath,  "//*[awesome(.)]"],
-              [:search, "//*[awesome(.)]"],
+              [:xpath,  "//*[nokogiri:awesome(.)]"],
+              [:search, "//*[nokogiri:awesome(.)]"],
               [:css,    "*:awesome"],
               [:search, "*:awesome"],
             ].each do |method, query|
@@ -185,19 +185,28 @@ module Nokogiri
               end.new
               custom_employees = set.send(method, query, callback_handler)
 
-              assert_equal(xml.xpath("//employee"), custom_employees,
-                "using #{method} with custom selector '#{query}'")
+              assert_equal(
+                xml.xpath("//employee"),
+                custom_employees,
+                "using #{method} with custom selector '#{query}'",
+              )
             end
           end
 
           it "with variable bindings" do
             set = xml.xpath("//staff")
 
-            assert_equal(4, set.xpath("//address[@domestic=$value]", nil, value: "Yes").length,
-              "using #xpath with variable binding")
+            assert_equal(
+              4,
+              set.xpath("//address[@domestic=$value]", nil, value: "Yes").length,
+              "using #xpath with variable binding",
+            )
 
-            assert_equal(4, set.search("//address[@domestic=$value]", nil, value: "Yes").length,
-              "using #search with variable binding")
+            assert_equal(
+              4,
+              set.search("//address[@domestic=$value]", nil, value: "Yes").length,
+              "using #search with variable binding",
+            )
           end
 
           it "context search returns itself" do
@@ -275,22 +284,22 @@ module Nokogiri
             assert(node_set_one = xml.xpath("//employee"))
             assert(node_set_two = xml.xpath("//employee"))
 
-            refute_equal(node_set_one.object_id, node_set_two.object_id)
+            refute_same(node_set_one, node_set_two)
             refute_same(node_set_one, node_set_two)
 
-            assert_equal(node_set_one, node_set_two)
+            assert_operator(node_set_one, :==, node_set_two) # rubocop:disable Minitest/AssertEqual
           end
 
           it "handles comparison to a string" do
             node_set_one = xml.xpath("//employee")
-            refute(node_set_one == "asdfadsf")
+            refute_operator(node_set_one, :==, "asdfadsf") # rubocop:disable Minitest/RefuteEqual
           end
 
           it "returns false if same elements are out of order" do
             one = xml.xpath("//employee")
             two = xml.xpath("//employee")
             two.push(two.shift)
-            refute_equal(one, two)
+            refute_operator(one, :==, two) # rubocop:disable Minitest/RefuteEqual
           end
 
           it "returns false if one is a subset of the other" do
@@ -298,8 +307,8 @@ module Nokogiri
             node_set_two = xml.xpath("//employee")
             node_set_two.delete(node_set_two.first)
 
-            refute(node_set_one == node_set_two)
-            refute(node_set_two == node_set_one)
+            refute_operator(node_set_one, :==, node_set_two) # rubocop:disable Minitest/RefuteEqual
+            refute_operator(node_set_two, :==, node_set_one) # rubocop:disable Minitest/RefuteEqual
           end
         end
 
@@ -359,6 +368,32 @@ module Nokogiri
           end
         end
 
+        specify "test_dup_should_not_copy_singleton_class" do
+          # https://github.com/sparklemotion/nokogiri/issues/316
+          m = Module.new do
+            def foo; end
+          end
+
+          set = Nokogiri::XML::Document.parse("<root/>").css("root")
+          set.extend(m)
+
+          assert_respond_to(set, :foo)
+          refute_respond_to(set.dup, :foo)
+        end
+
+        specify "test_clone_should_copy_singleton_class" do
+          # https://github.com/sparklemotion/nokogiri/issues/316
+          m = Module.new do
+            def foo; end
+          end
+
+          set = Nokogiri::XML::Document.parse("<root/>").css("root")
+          set.extend(m)
+
+          assert_respond_to(set, :foo)
+          assert_respond_to(set.clone, :foo)
+        end
+
         specify "#dup on empty set" do
           empty_set = Nokogiri::XML::NodeSet.new(xml, [])
           assert_equal(0, empty_set.dup.length) # this shouldn't raise null pointer exception
@@ -398,9 +433,29 @@ module Nokogiri
           assert_match("<a>two</a>", html)
         end
 
-        it "gt_string_arg" do
-          assert(node_set = xml.search("//employee"))
-          assert_equal(node_set.xpath("./employeeId"), (node_set > "employeeId"))
+        it "searches direct children of nodes with :>" do
+          xml = <<~XML
+            <root>
+              <wrap>
+                <div class="section header" id="1">
+                  <div class="subsection header">sub 1</div>
+                  <div class="subsection header">sub 2</div>
+                </div>
+              </wrap>
+              <wrap>
+                <div class="section header" id="2">
+                  <div class="subsection header">sub 3</div>
+                  <div class="subsection header">sub 4</div>
+                </div>
+              </wrap>
+            </root>
+          XML
+          node_set = Nokogiri::XML::Document.parse(xml).xpath("/root/wrap")
+          result = (node_set > "div.header")
+          assert_equal(2, result.length)
+          assert_equal(["1", "2"], result.map { |n| n["id"] })
+
+          assert_empty(node_set > ".no-such-match")
         end
 
         it "at_performs_a_search_with_css" do
@@ -520,21 +575,49 @@ module Nokogiri
 
         describe "#wrap" do
           it "wraps each node within a reified copy of the tag passed" do
-            employees = (xml / "//employee").wrap("<wrapper/>")
-            assert_equal("wrapper", employees[0].parent.name)
-            assert_equal("employee", xml.search("//wrapper").first.children[0].name)
+            employees = xml.css("employee")
+            rval = employees.wrap("<wrapper/>")
+            wrappers = xml.css("wrapper")
+
+            assert_equal(rval, employees)
+            assert_equal(employees.length, wrappers.length)
+            employees.each do |employee|
+              assert_equal("wrapper", employee.parent.name)
+            end
+            wrappers.each do |wrapper|
+              assert_equal("staff", wrapper.parent.name)
+              assert_equal(1, wrapper.children.length)
+              assert_equal("employee", wrapper.children.first.name)
+            end
+          end
+
+          it "wraps each node within a dup of the Node argument" do
+            employees = xml.css("employee")
+            rval = employees.wrap(xml.create_element("wrapper"))
+            wrappers = xml.css("wrapper")
+
+            assert_equal(rval, employees)
+            assert_equal(employees.length, wrappers.length)
+            employees.each do |employee|
+              assert_equal("wrapper", employee.parent.name)
+            end
+            wrappers.each do |wrapper|
+              assert_equal("staff", wrapper.parent.name)
+              assert_equal(1, wrapper.children.length)
+              assert_equal("employee", wrapper.children.first.name)
+            end
           end
 
           it "handles various node types and handles recursive reparenting" do
-            xml = "<root><foo>contents</foo></root>"
-            doc = Nokogiri::XML(xml)
+            doc = Nokogiri::XML("<root><foo>contents</foo></root>")
             nodes = doc.at_css("root").xpath(".//* | .//*/text()") # foo and "contents"
             nodes.wrap("<wrapper/>")
             wrappers = doc.css("wrapper")
+
             assert_equal("root", wrappers.first.parent.name)
             assert_equal("foo", wrappers.first.children.first.name)
             assert_equal("foo", wrappers.last.parent.name)
-            assert(wrappers.last.children.first.text?)
+            assert_predicate(wrappers.last.children.first, :text?)
             assert_equal("contents", wrappers.last.children.first.text)
           end
 
@@ -545,18 +628,22 @@ module Nokogiri
                 <employee>goodbye</employee>
               </employees>
             EOXML
-            employees = frag.xpath(".//employee")
+            employees = frag.css("employee")
             employees.wrap("<wrapper/>")
             assert_equal("wrapper", employees[0].parent.name)
             assert_equal("employee", frag.at(".//wrapper").children.first.name)
           end
 
           it "preserves document structure" do
-            assert_equal("employeeId",
-              xml.at_xpath("//employee").children.detect { |j| !j.text? }.name)
+            assert_equal(
+              "employeeId",
+              xml.at_xpath("//employee").children.detect { |j| !j.text? }.name,
+            )
             xml.xpath("//employeeId[text()='EMP0001']").wrap("<wrapper/>")
-            assert_equal("wrapper",
-              xml.at_xpath("//employee").children.detect { |j| !j.text? }.name)
+            assert_equal(
+              "wrapper",
+              xml.at_xpath("//employee").children.detect { |j| !j.text? }.name,
+            )
           end
         end
 
@@ -686,6 +773,13 @@ module Nokogiri
             assert_equal([employees[1], employees[2], employees[3]], employees[1..3].to_a)
             assert_equal([employees[0], employees[1], employees[2], employees[3]], employees[0..3].to_a)
           end
+
+          it "raises a TypeError if param is not an integer or range" do
+            employees = xml.search("//employee")
+            assert_raises(TypeError) do
+              employees["foo"]
+            end
+          end
         end
 
         describe "#& intersection" do
@@ -735,16 +829,9 @@ module Nokogiri
           end
 
           it "returns an enumerator given no block" do
-            if i_am_ruby_matching("~> 2.5.0") && i_am_in_a_systemd_container
-              # Ruby 2.5 Enumerators cause a segfault in systemd containers. Yes, really!
-              #
-              #   https://bugs.ruby-lang.org/issues/14883
-              #
-              # So let's skip this test if we think that's where we are.
-              skip("cannot use Ruby 2.5 Enumerator#each in a systemd container")
-            end
             skip("enumerators confuse valgrind") if i_am_running_in_valgrind
             skip("enumerators confuse ASan") if i_am_running_with_asan
+            skip("https://bugs.ruby-lang.org/issues/20085") if RUBY_DESCRIPTION.include?("aarch64") && RUBY_VERSION == "3.3.0"
 
             employees = xml.search("//employee")
             enum = employees.each
@@ -774,8 +861,10 @@ module Nokogiri
           employees = xml.search("//employee")
           inspected = employees.inspect
 
-          assert_equal("[#{employees.map(&:inspect).join(", ")}]",
-            inspected)
+          assert_equal(
+            "[#{employees.map(&:inspect).join(", ")}]",
+            inspected,
+          )
         end
 
         it "should_not_splode_when_accessing_namespace_declarations_in_a_node_set" do
@@ -912,6 +1001,12 @@ module Nokogiri
             assert_equal(2, node_set.length)
             assert_equal(doc1, node_set[0].document)
             assert_equal(doc2, node_set[1].document)
+          end
+        end
+
+        describe "empty sets" do
+          it "#to_html returns an empty string" do
+            assert_equal("", NodeSet.new(xml, []).to_html)
           end
         end
       end

@@ -4,7 +4,7 @@
 require "helper"
 
 class TestHtml5Encoding < Nokogiri::TestCase
-  if "".respond_to?("encoding")
+  if "".respond_to?(:encoding)
     def test_macroman_encoding
       mac = (+"<span>\xCA</span>").force_encoding("macroman")
       doc = Nokogiri::HTML5(mac)
@@ -17,8 +17,15 @@ class TestHtml5Encoding < Nokogiri::TestCase
       assert_equal("<span>Señor</span>", doc.at("span").to_xml)
     end
 
-    def test_charset_encoding
+    def test_meta_charset_encoding
       utf8 = (+"<meta charset='utf-8'><span>Se\xC3\xB1or</span>")
+        .force_encoding(Encoding::ASCII_8BIT)
+      doc = Nokogiri::HTML5(utf8)
+      assert_equal("<span>Señor</span>", doc.at("span").to_xml)
+    end
+
+    def test_META_CHARSET_encoding
+      utf8 = (+"<META CHARSET='utf-8'><SPAN>Se\xC3\xB1or</SPAN>")
         .force_encoding(Encoding::ASCII_8BIT)
       doc = Nokogiri::HTML5(utf8)
       assert_equal("<span>Señor</span>", doc.at("span").to_xml)
@@ -105,7 +112,7 @@ class TestHtml5Encoding < Nokogiri::TestCase
   # I'm happy to change them. I'm just pasting them in here so I'm pretty sure
   # the right-to-left languages are backward. Corrections welcome.
   ENCODINGS = [
-    ["UTF-8",          "Let's concatentate all of these for UTF-8"], # English
+    ["UTF-8",          "Let's concatenate all of these for UTF-8"], # English
     ["IBM866",         "А дело бывало -- и коза волка съедала"], # Russian
     ["ISO-8859-2",     "Co můžeš udělat dnes, neodkládej na zítřek."], # Czech
     ["ISO-8859-3",     "Yukarda mavi gök, asağıda yağız yer yaratıldıkta"], # Turkish
@@ -182,8 +189,19 @@ class TestHtml5Encoding < Nokogiri::TestCase
     define_method("test_parse_encoded_#{enc[0]}".to_sym) do
       html = "<!DOCTYPE html><span>#{enc[1]}</span>"
       encoded_html = round_trip_through(html, enc[0])
-      doc = Nokogiri::HTML5(encoded_html, encoding: enc[0])
+      doc = Nokogiri::HTML5(encoded_html)
       span = doc.at("/html/body/span")
+
+      refute_nil span
+      assert_equal enc[1], span.content
+    end
+
+    define_method("test_parse_encoded_#{enc[0]}_with_encoding".to_sym) do
+      html = "<!DOCTYPE html><span>#{enc[1]}</span>"
+      encoded_html = round_trip_through(html, enc[0])
+      doc = Nokogiri::HTML5(encoded_html, nil, enc[0])
+      span = doc.at("/html/body/span")
+
       refute_nil span
       assert_equal enc[1], span.content
     end
@@ -191,6 +209,7 @@ class TestHtml5Encoding < Nokogiri::TestCase
     define_method("test_inner_html_encoded_#{enc[0]}".to_sym) do
       encoded = round_trip_through(enc[1], enc[0])
       span = encodings_doc.at(%(/html/body/span[@id="#{enc[0]}"]))
+
       refute_nil span
       assert_equal encoded, span.inner_html(encoding: enc[0])
     end
@@ -201,9 +220,25 @@ class TestHtml5Encoding < Nokogiri::TestCase
       # multiple conversions have to happen. I'm not sure it's worth working
       # around. It impacts this test though.
       skip "https://bugs.ruby-lang.org/issues/15033" if enc[0] == "ISO-2022-JP"
+
       round_trip_through(enc[1], enc[0])
       encoded = encodings_doc.serialize(encoding: enc[0])
-      doc = Nokogiri::HTML5(encoded, encoding: enc[0])
+      doc = Nokogiri::HTML5(encoded)
+
+      assert_equal encodings_html, doc.serialize
+    end
+
+    define_method("test_roundtrip_through_#{enc[0]}_with_encoding".to_sym) do
+      # https://bugs.ruby-lang.org/issues/15033
+      # Ruby has a bug with the `:fallback` parameter passed to `#encode` when
+      # multiple conversions have to happen. I'm not sure it's worth working
+      # around. It impacts this test though.
+      skip "https://bugs.ruby-lang.org/issues/15033" if enc[0] == "ISO-2022-JP"
+
+      round_trip_through(enc[1], enc[0])
+      encoded = encodings_doc.serialize(encoding: enc[0])
+      doc = Nokogiri::HTML5(encoded, nil, enc[0])
+
       assert_equal encodings_html, doc.serialize
     end
   end

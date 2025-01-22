@@ -8,7 +8,7 @@ module Nokogiri
     class TestNodeEncoding < Nokogiri::TestCase
       def setup
         super
-        @html = Nokogiri::HTML(File.open(NICH_FILE, "rb"))
+        @html = Nokogiri::HTML4(File.open(NICH_FILE, "rb"))
       end
 
       def test_get_attribute
@@ -25,15 +25,17 @@ module Nokogiri
           skip("libxml2 without iconv does not pass this test")
         end
 
-        assert_equal(@html.encoding.downcase,
-          @html.serialize.encoding.name.downcase)
+        assert_equal(
+          @html.encoding.downcase,
+          @html.serialize.encoding.name.downcase,
+        )
 
-        @doc = Nokogiri::HTML(@html.serialize)
+        @doc = Nokogiri::HTML4(@html.serialize)
         assert_equal(@html.serialize, @doc.serialize)
       end
 
       def test_default_encoding
-        doc = Nokogiri::HTML(nil)
+        doc = Nokogiri::HTML4(nil)
         assert_nil(doc.encoding)
         assert_equal("UTF-8", doc.serialize.encoding.name)
       end
@@ -59,7 +61,7 @@ module Nokogiri
       end
 
       def test_inner_html
-        doc = Nokogiri::HTML(File.open(SHIFT_JIS_HTML, "rb"))
+        doc = Nokogiri::HTML4(File.open(SHIFT_JIS_HTML, "rb"))
 
         hello = "こんにちは"
 
@@ -76,7 +78,7 @@ module Nokogiri
       end
 
       def test_encoding_GH_1113
-        doc = Nokogiri::HTML::Document.new
+        doc = Nokogiri::HTML4::Document.new
         hex = "<p>&#x1f340;</p>"
         decimal = "<p>&#127808;</p>"
         encoded = "<p>🍀</p>"

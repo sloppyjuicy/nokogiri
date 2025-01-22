@@ -5,12 +5,12 @@ require "pathname"
 
 module Nokogiri
   module XML
-    # Nokogiri::XML::Document is the main entry point for dealing with XML documents.  The Document
-    # is created by parsing an XML document.  See Nokogiri::XML::Document.parse for more information
-    # on parsing.
+    # Nokogiri::XML::Document is the main entry point for dealing with \XML documents. The Document
+    # is created by parsing \XML content from a String or an IO object. See
+    # Nokogiri::XML::Document.parse for more information on parsing.
     #
-    # For searching a Document, see Nokogiri::XML::Searchable#css and
-    # Nokogiri::XML::Searchable#xpath
+    # Document inherits a great deal of functionality from its superclass Nokogiri::XML::Node, so
+    # please read that class's documentation as well.
     class Document < Nokogiri::XML::Node
       # See http://www.w3.org/TR/REC-xml-names/#ns-decl for more details. Note that we're not
       # attempting to handle unicode characters partly because libxml2 doesn't handle unicode
@@ -19,64 +19,85 @@ module Nokogiri
       NCNAME_CHAR       = NCNAME_START_CHAR + "\\-\\.0-9"
       NCNAME_RE         = /^xmlns(?::([#{NCNAME_START_CHAR}][#{NCNAME_CHAR}]*))?$/
 
-      ##
-      # Parse an XML file.
-      #
-      # +string_or_io+ may be a String, or any object that responds to
-      # _read_ and _close_ such as an IO, or StringIO.
-      #
-      # +url+ (optional) is the URI where this document is located.
-      #
-      # +encoding+ (optional) is the encoding that should be used when processing
-      # the document.
-      #
-      # +options+ (optional) is a configuration object that sets options during
-      # parsing, such as Nokogiri::XML::ParseOptions::RECOVER. See the
-      # Nokogiri::XML::ParseOptions for more information.
-      #
-      # +block+ (optional) is passed a configuration object on which
-      # parse options may be set.
-      #
-      # By default, Nokogiri treats documents as untrusted, and so
-      # does not attempt to load DTDs or access the network. See
-      # Nokogiri::XML::ParseOptions for a complete list of options;
-      # and that module's DEFAULT_XML constant for what's set (and not
-      # set) by default.
-      #
-      # Nokogiri.XML() is a convenience method which will call this method.
-      #
-      def self.parse(string_or_io, url = nil, encoding = nil, options = ParseOptions::DEFAULT_XML)
-        options = Nokogiri::XML::ParseOptions.new(options) if Integer === options
+      OBJECT_DUP_METHOD = Object.instance_method(:dup)
+      OBJECT_CLONE_METHOD = Object.instance_method(:clone)
+      private_constant :OBJECT_DUP_METHOD, :OBJECT_CLONE_METHOD
 
-        yield options if block_given?
+      class << self
+        # call-seq:
+        #   parse(input) { |options| ... } => Nokogiri::XML::Document
+        #   parse(input, url:, encoding:, options:) => Nokogiri::XML::Document
+        #
+        # Parse \XML input from a String or IO object, and return a new XML::Document.
+        #
+        # 🛡 By default, Nokogiri treats documents as untrusted, and so does not attempt to load DTDs
+        # or access the network. See Nokogiri::XML::ParseOptions for a complete list of options; and
+        # that module's DEFAULT_XML constant for what's set (and not set) by default.
+        #
+        # [Required Parameters]
+        # - +input+ (String | IO) The content to be parsed.
+        #
+        # [Optional Keyword Arguments]
+        # - +url:+ (String) The base URI for this document.
+        #
+        # - +encoding:+ (String) The name of the encoding that should be used when processing the
+        #   document. When not provided, the encoding will be determined based on the document
+        #   content.
+        #
+        # - +options:+ (Nokogiri::XML::ParseOptions) Configuration object that determines some
+        #   behaviors during parsing. See ParseOptions for more information. The default value is
+        #   +ParseOptions::DEFAULT_XML+.
+        #
+        # [Yields]
+        #   If a block is given, a Nokogiri::XML::ParseOptions object is yielded to the block which
+        #   can be configured before parsing. See Nokogiri::XML::ParseOptions for more information.
+        #
+        # [Returns] Nokogiri::XML::Document
+        def parse(
+          string_or_io,
+          url_ = nil, encoding_ = nil, options_ = XML::ParseOptions::DEFAULT_XML,
+          url: url_, encoding: encoding_, options: options_
+        )
+          options = Nokogiri::XML::ParseOptions.new(options) if Integer === options
+          yield options if block_given?
 
-        url ||= string_or_io.respond_to?(:path) ? string_or_io.path : nil
+          url ||= string_or_io.respond_to?(:path) ? string_or_io.path : nil
 
-        if empty_doc?(string_or_io)
-          if options.strict?
-            raise Nokogiri::XML::SyntaxError, "Empty document"
+          if empty_doc?(string_or_io)
+            if options.strict?
+              raise Nokogiri::XML::SyntaxError, "Empty document"
+            else
+              return encoding ? new.tap { |i| i.encoding = encoding } : new
+            end
+          end
+
+          doc = if string_or_io.respond_to?(:read)
+            # TODO: should we instead check for respond_to?(:to_path) ?
+            if string_or_io.is_a?(Pathname)
+              # resolve the Pathname to the file and open it as an IO object, see #2110
+              string_or_io = string_or_io.expand_path.open
+              url ||= string_or_io.path
+            end
+
+            read_io(string_or_io, url, encoding, options.to_i)
           else
-            return encoding ? new.tap { |i| i.encoding = encoding } : new
-          end
-        end
-
-        doc = if string_or_io.respond_to?(:read)
-          if string_or_io.is_a?(Pathname)
-            # resolve the Pathname to the file and open it as an IO object, see #2110
-            string_or_io = string_or_io.expand_path.open
-            url ||= string_or_io.path
+            # read_memory pukes on empty docs
+            read_memory(string_or_io, url, encoding, options.to_i)
           end
 
-          read_io(string_or_io, url, encoding, options.to_i)
-        else
-          # read_memory pukes on empty docs
-          read_memory(string_or_io, url, encoding, options.to_i)
+          # do xinclude processing
+          doc.do_xinclude(options) if options.xinclude?
+
+          doc
         end
 
-        # do xinclude processing
-        doc.do_xinclude(options) if options.xinclude?
+        private
 
-        doc
+        def empty_doc?(string_or_io)
+          string_or_io.nil? ||
+            (string_or_io.respond_to?(:empty?) && string_or_io.empty?) ||
+            (string_or_io.respond_to?(:eof?) && string_or_io.eof?)
+        end
       end
 
       ##
@@ -166,10 +187,42 @@ module Nokogiri
       # Since v1.12.4
       attr_accessor :namespace_inheritance
 
-      def initialize(*args) # :nodoc:
+      def initialize(*args) # :nodoc: # rubocop:disable Lint/MissingSuper
         @errors     = []
         @decorators = nil
         @namespace_inheritance = false
+      end
+
+      #
+      # :call-seq:
+      #   dup → Nokogiri::XML::Document
+      #   dup(level) → Nokogiri::XML::Document
+      #
+      # Duplicate this node.
+      #
+      # [Parameters]
+      # - +level+ (optional Integer). 0 is a shallow copy, 1 (the default) is a deep copy.
+      # [Returns] The new Nokogiri::XML::Document
+      #
+      def dup(level = 1)
+        copy = OBJECT_DUP_METHOD.bind_call(self)
+        copy.initialize_copy_with_args(self, level)
+      end
+
+      #
+      # :call-seq:
+      #   clone → Nokogiri::XML::Document
+      #   clone(level) → Nokogiri::XML::Document
+      #
+      # Clone this node.
+      #
+      # [Parameters]
+      # - +level+ (optional Integer). 0 is a shallow copy, 1 (the default) is a deep copy.
+      # [Returns] The new Nokogiri::XML::Document
+      #
+      def clone(level = 1)
+        copy = OBJECT_CLONE_METHOD.bind_call(self)
+        copy.initialize_copy_with_args(self, level)
       end
 
       # :call-seq:
@@ -318,10 +371,11 @@ module Nokogiri
       end
 
       ##
-      # Validate this Document against it's DTD.  Returns a list of errors on
+      # Validate this Document against its DTD.  Returns a list of errors on
       # the document or +nil+ when there is no DTD.
       def validate
-        return nil unless internal_subset
+        return unless internal_subset
+
         internal_subset.validate(self)
       end
 
@@ -354,14 +408,15 @@ module Nokogiri
       # Apply any decorators to +node+
       def decorate(node)
         return unless @decorators
+
         @decorators.each do |klass, list|
           next unless node.is_a?(klass)
-          list.each { |moodule| node.extend(moodule) }
+
+          list.each { |mod| node.extend(mod) }
         end
       end
 
       alias_method :to_xml, :serialize
-      alias_method :clone, :dup
 
       # Get the hash of namespaces on the root Nokogiri::XML::Node
       def namespaces
@@ -381,9 +436,11 @@ module Nokogiri
 
       def add_child(node_or_tags)
         raise "A document may not have multiple root nodes." if (root && root.name != "nokogiri_text_wrapper") && !(node_or_tags.comment? || node_or_tags.processing_instruction?)
+
         node_or_tags = coerce(node_or_tags)
         if node_or_tags.is_a?(XML::NodeSet)
           raise "A document may not have multiple root nodes." if node_or_tags.size > 1
+
           super(node_or_tags.first)
         else
           super
@@ -391,13 +448,61 @@ module Nokogiri
       end
       alias_method :<<, :add_child
 
-      private
-
-      def self.empty_doc?(string_or_io)
-        string_or_io.nil? ||
-          (string_or_io.respond_to?(:empty?) && string_or_io.empty?) ||
-          (string_or_io.respond_to?(:eof?) && string_or_io.eof?)
+      # :call-seq:
+      #   xpath_doctype() → Nokogiri::CSS::XPathVisitor::DoctypeConfig
+      #
+      # [Returns] The document type which determines CSS-to-XPath translation.
+      #
+      # See XPathVisitor for more information.
+      def xpath_doctype
+        Nokogiri::CSS::XPathVisitor::DoctypeConfig::XML
       end
+
+      #
+      #  :call-seq: deconstruct_keys(array_of_names) → Hash
+      #
+      #  Returns a hash describing the Document, to use in pattern matching.
+      #
+      #  Valid keys and their values:
+      #  - +root+ → (Node, nil) The root node of the Document, or +nil+ if the document is empty.
+      #
+      #  In the future, other keys may allow accessing things like doctype and processing
+      #  instructions. If you have a use case and would like this functionality, please let us know
+      #  by opening an issue or a discussion on the github project.
+      #
+      #  *Example*
+      #
+      #    doc = Nokogiri::XML.parse(<<~XML)
+      #      <?xml version="1.0"?>
+      #      <root>
+      #        <child>
+      #      </root>
+      #    XML
+      #
+      #    doc.deconstruct_keys([:root])
+      #    # => {:root=>
+      #    #      #(Element:0x35c {
+      #    #        name = "root",
+      #    #        children = [
+      #    #          #(Text "\n" + "  "),
+      #    #          #(Element:0x370 { name = "child", children = [ #(Text "\n")] }),
+      #    #          #(Text "\n")]
+      #    #        })}
+      #
+      #  *Example* of an empty document
+      #
+      #    doc = Nokogiri::XML::Document.new
+      #
+      #    doc.deconstruct_keys([:root])
+      #    # => {:root=>nil}
+      #
+      #  Since v1.14.0
+      #
+      def deconstruct_keys(keys)
+        { root: root }
+      end
+
+      private
 
       IMPLIED_XPATH_CONTEXTS = ["//"].freeze # :nodoc:
 

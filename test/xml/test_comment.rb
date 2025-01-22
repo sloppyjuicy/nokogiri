@@ -17,8 +17,8 @@ module Nokogiri
 
       def test_comment?
         comment = Nokogiri::XML::Comment.new(@xml, "hello world")
-        assert(comment.comment?)
-        refute(@xml.root.comment?)
+        assert_predicate(comment, :comment?)
+        refute_predicate(@xml.root, :comment?)
       end
 
       def test_passing_a_node_uses_the_node_document
@@ -29,12 +29,6 @@ module Nokogiri
       def test_passing_anything_else
         assert_raises(ArgumentError) do
           Nokogiri::XML::Comment.new("NOT A NOKOGIRI CLASS", "hello world")
-        end
-      end
-
-      def test_many_comments
-        100.times do
-          Nokogiri::XML::Comment.new(@xml, "hello world")
         end
       end
     end

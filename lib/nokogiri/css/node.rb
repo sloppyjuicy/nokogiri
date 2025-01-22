@@ -2,7 +2,7 @@
 
 module Nokogiri
   module CSS
-    class Node
+    class Node # :nodoc:
       ALLOW_COMBINATOR_ON_SELF = [:DIRECT_ADJACENT_SELECTOR, :FOLLOWING_SELECTOR, :CHILD_SELECTOR]
 
       # Get the type of this node
@@ -23,8 +23,12 @@ module Nokogiri
 
       ###
       # Convert this CSS node to xpath with +prefix+ using +visitor+
-      def to_xpath(prefix = "//", visitor = XPathVisitor.new)
-        prefix = "." if ALLOW_COMBINATOR_ON_SELF.include?(type) && value.first.nil?
+      def to_xpath(visitor)
+        prefix = if ALLOW_COMBINATOR_ON_SELF.include?(type) && value.first.nil?
+          "."
+        else
+          visitor.prefix
+        end
         prefix + visitor.accept(self)
       end
 
@@ -40,9 +44,9 @@ module Nokogiri
 
       # Convert to_type
       def to_type
-        [@type] + @value.map do |n|
+        [@type] + @value.filter_map do |n|
           n.to_type if n.respond_to?(:to_type)
-        end.compact
+        end
       end
 
       # Convert to array

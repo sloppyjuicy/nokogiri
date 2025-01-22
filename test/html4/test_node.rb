@@ -2,14 +2,12 @@
 
 require "helper"
 
-require "nkf"
-
 module Nokogiri
   module HTML
     class TestNode < Nokogiri::TestCase
       def setup
         super
-        @html = Nokogiri::HTML(<<-eohtml)
+        @html = Nokogiri::HTML4(<<-eohtml)
         <html>
           <head></head>
           <body>
@@ -32,20 +30,20 @@ module Nokogiri
         element = @html.at("div")
         assert_equal("baz", element.get_attribute("class"))
         assert_equal("baz", element["class"])
-        element["href"] = "javascript:alert(\"AGGA-KA-BOO!\")"
-        assert_match(/%22AGGA-KA-BOO!%22/, element.to_html)
+        element["href"] = "https://nokogiri.org/"
+        assert_match(/nokogiri.org/, element.to_html)
       end
 
       # The HTML parser ignores namespaces, so even properly declared namespaces
       # are treated as as undeclared and have to be accessed via prefix:tagname
       def test_ns_attribute
         html = '<i foo:bar="baz"></i>'
-        doc = Nokogiri::HTML(html)
+        doc = Nokogiri::HTML4(html)
         assert_equal("baz", (doc % "i")["foo:bar"])
       end
 
       def test_css_path_round_trip
-        doc = Nokogiri::HTML(File.read(HTML_FILE))
+        doc = Nokogiri::HTML4(File.read(HTML_FILE))
         ["#header", "small", "div[2]", "div.post", "body"].each do |css_sel|
           ele = doc.at(css_sel)
           assert_equal(ele, doc.at(ele.css_path), ele.css_path)
@@ -53,7 +51,7 @@ module Nokogiri
       end
 
       def test_path_round_trip
-        doc = Nokogiri::HTML(File.read(HTML_FILE))
+        doc = Nokogiri::HTML4(File.read(HTML_FILE))
         ["#header", "small", "div[2]", "div.post", "body"].each do |css_sel|
           ele = doc.at(css_sel)
           assert_equal(ele, doc.at(ele.path), ele.path)
@@ -62,7 +60,7 @@ module Nokogiri
 
       def test_append_with_document
         assert_raises(ArgumentError) do
-          @html.root << Nokogiri::HTML::Document.new
+          @html.root << Nokogiri::HTML4::Document.new
         end
       end
 
@@ -161,7 +159,7 @@ module Nokogiri
       end
 
       def test_fragment_serialization
-        fragment = Nokogiri::HTML.fragment("<div>foo</div>")
+        fragment = Nokogiri::HTML4.fragment("<div>foo</div>")
         assert_equal("<div>foo</div>", fragment.serialize.chomp)
         assert_equal("<div>foo</div>", fragment.to_xml.chomp)
         assert_equal("<div>foo</div>", fragment.inner_html)
@@ -170,38 +168,36 @@ module Nokogiri
       end
 
       def test_to_html_does_not_contain_entities
-        return unless defined?(NKF) # NKF is not implemented on Rubinius as of 2009-11-23
-        html = NKF.nkf("-e --msdos", <<-EOH)
-        <html><body>
-        <p> test paragraph
-        foo bar </p>
-        </body></html>
-        EOH
-        nokogiri = Nokogiri::HTML.parse(html)
+        html = "<html><body>\r\n<p> test paragraph\r\nfoo bar </p>\r\n</body></html>\r\n"
+        nokogiri = Nokogiri::HTML4.parse(html)
 
-        if RUBY_PLATFORM.include?("java")
-          # NKF linebreak modes are not supported as of jruby 1.2
-          # see http://jira.codehaus.org/browse/JRUBY-3602 for status
-          assert_equal("<p>testparagraph\nfoobar</p>",
-            nokogiri.at("p").to_html.delete(" "))
+        if Nokogiri.jruby? || Nokogiri.uses_libxml?(">= 2.14.0")
+          assert_equal(
+            "<p>testparagraph\nfoobar</p>",
+            nokogiri.at("p").to_html.delete(" "),
+          )
         else
-          assert_equal("<p>testparagraph\r\nfoobar</p>",
-            nokogiri.at("p").to_html.delete(" "))
+          assert_equal(
+            "<p>testparagraph\r\nfoobar</p>",
+            nokogiri.at("p").to_html.delete(" "),
+          )
         end
       end
 
       def test_GH_1042
         file = File.join(ASSETS_DIR, "GH_1042.html")
-        html = Nokogiri::HTML(File.read(file))
+        html = Nokogiri::HTML4(File.read(file))
         table = html.xpath("//table")[1]
         trs = table.xpath("tr").drop(1)
 
-        # the jruby inplementation of drop uses dup() on the IRubyObject (which
-        # is NOT the same dup() method on the ruby Object) which produces a
-        # shallow clone. a shallow of valid XMLNode triggers several
-        # NullPointerException on inspect() since loads of invariants
-        # are not set. the fix for GH1042 ensures a proper working clone.
-        trs.inspect # assert_nothing_raised
+        refute_raises do
+          # the jruby implementation of drop uses dup() on the IRubyObject (which
+          # is NOT the same dup() method on the ruby Object) which produces a
+          # shallow clone. a shallow of valid XMLNode triggers several
+          # NullPointerException on inspect() since loads of invariants
+          # are not set. the fix for GH1042 ensures a proper working clone.
+          trs.inspect
+        end
       end
 
       def test_fragment_node_to_xhtml # see #2355

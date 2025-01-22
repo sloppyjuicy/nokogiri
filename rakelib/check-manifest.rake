@@ -5,7 +5,9 @@
 # replacement for Hoe's task of the same name
 
 desc "Perform a sanity check on the gemspec file list"
-task :check_manifest do
+task :check_manifest, [:verbose] do |_, args|
+  verbose = args[:verbose]
+
   raw_gemspec = Bundler.load_gemspec("nokogiri.gemspec")
 
   ignore_directories = %w{
@@ -13,12 +15,15 @@ task :check_manifest do
     .DS_Store
     .git
     .github
+    .ruby-lsp
     .vagrant
-    .yardoc
+    .vscode
+    adr
     coverage
-    doc
     gems
-    nokogumbo-import
+    html
+    issues
+    misc
     oci-images
     patches
     pkg
@@ -33,11 +38,12 @@ task :check_manifest do
     [0-9]*
   }
   ignore_files = %w[
-    .cross_rubies
     .editorconfig
     .gitignore
     .gitmodules
-    .yardopts
+    .rubocop.yml
+    .rubocop_exclude.yml
+    .rubocop_todo.yml
     CHANGELOG.md
     CODE_OF_CONDUCT.md
     CONTRIBUTING.md
@@ -45,16 +51,31 @@ task :check_manifest do
     ROADMAP.md
     Rakefile
     SECURITY.md
-    STANDARD_RESPONSES.md
     Vagrantfile
     [a-z]*.{log,out}
     [0-9]*
     appveyor.yml
+    **/compile_commands.json
+    gumbo-parser/fuzzer/*
+    gumbo-parser/googletest/*
     gumbo-parser/test/*
+    gumbo-parser/gperf-filter.sed
     lib/nokogiri/**/nokogiri.{jar,so}
     lib/nokogiri/nokogiri.{jar,so}
     nokogiri.gemspec
   ]
+
+  if verbose
+    ignore_directories.each do |glob|
+      matches = Dir.glob(glob).select { |filename| File.directory?(filename) }
+      $stderr.puts "NOTE: ignored directory glob '#{glob}' has zero matches" if matches.empty?
+    end
+
+    ignore_files.each do |glob|
+      matches = Dir.glob(glob).select { |filename| File.file?(filename) }
+      $stderr.puts "NOTE: ignored file glob '#{glob}' has zero matches" if matches.empty?
+    end
+  end
 
   intended_directories = Dir.children(".")
     .select { |filename| File.directory?(filename) }
@@ -76,10 +97,12 @@ task :check_manifest do
 
   unless missing_files.empty?
     puts "missing:"
-    missing_files.each { |f| puts "- #{f}" }
+    missing_files.sort.each { |f| puts "- #{f}" }
   end
   unless extra_files.empty?
     puts "unexpected:"
-    extra_files.each { |f| puts "+ #{f}" }
+    extra_files.sort.each { |f| puts "+ #{f}" }
   end
 end
+
+# rubocop:enable Style/WordArray

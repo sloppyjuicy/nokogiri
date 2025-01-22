@@ -39,6 +39,8 @@ import static nokogiri.internals.NokogiriHelpers.nodeListToRubyArray;
 @JRubyClass(name = "Nokogiri::XML::XPathContext")
 public class XmlXpathContext extends RubyObject
 {
+  private static final long serialVersionUID = 1L;
+
   static
   {
     final String DTMManager = "org.apache.xml.dtm.DTMManager";
@@ -152,7 +154,11 @@ public class XmlXpathContext extends RubyObject
   public IRubyObject
   register_ns(IRubyObject prefix, IRubyObject uri)
   {
-    nsContext.registerNamespace(prefix.asJavaString(), uri.asJavaString());
+    if (uri.isNil()) {
+      nsContext.deregisterNamespace(prefix.asJavaString());
+    } else {
+      nsContext.registerNamespace(prefix.asJavaString(), uri.asJavaString());
+    }
     return this;
   }
 
@@ -167,9 +173,22 @@ public class XmlXpathContext extends RubyObject
       variableResolver = NokogiriXPathVariableResolver.create();
       this.variableResolver = variableResolver;
     }
-    variableResolver.registerVariable(name.asJavaString(), value.asJavaString());
+    if (value.isNil()) {
+      variableResolver.deregisterVariable(name.asJavaString());
+    } else {
+      variableResolver.registerVariable(name.asJavaString(), value.asJavaString());
+    }
     return this;
   }
+
+  @JRubyMethod(name = "node=")
+  public IRubyObject
+  set_node(ThreadContext context, IRubyObject rb_node)
+  {
+    this.context = (XmlNode) rb_node;
+    return rb_node;
+  }
+
 
   private IRubyObject
   node_set(ThreadContext context, String expr, IRubyObject handler)
@@ -177,7 +196,7 @@ public class XmlXpathContext extends RubyObject
     final NokogiriXPathFunctionResolver fnResolver = NokogiriXPathFunctionResolver.create(handler);
     try {
       return tryGetNodeSet(context, expr, fnResolver);
-    } catch (TransformerException ex) {
+    } catch (TransformerException | RuntimeException ex) {
       throw XmlSyntaxError.createXMLXPathSyntaxError(context.runtime,
           (expr + ": " + ex.toString()),
           ex).toThrowable();

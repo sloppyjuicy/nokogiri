@@ -57,17 +57,6 @@ module Nokogiri
           assert_equal("", doc.content)
         end
 
-        # issue 1060
-        def test_node_ownership_after_dup
-          html = "<html><head></head><body><div>replace me</div></body></html>"
-          doc = Nokogiri::XML::Document.parse(html)
-          dup = doc.dup
-          assert_same(dup, dup.at_css("div").document)
-
-          # should not raise an exception
-          dup.at_css("div").parse("<div>replaced</div>")
-        end
-
         # issue #835
         def test_manually_adding_reference_entities
           d = Nokogiri::XML::Document.new
@@ -81,7 +70,7 @@ module Nokogiri
         end
 
         def test_document_with_initial_space
-          doc = Nokogiri::XML(" <?xml version='1.0' encoding='utf-8' ?><first \>")
+          doc = Nokogiri::XML(" <?xml version='1.0' encoding='utf-8' ?><first >")
           assert_equal(2, doc.children.size)
         end
 
@@ -144,8 +133,10 @@ module Nokogiri
               </foo>
             </xml>
           eoxml
-          assert_equal({ "xmlns" => "hello", "xmlns:foo" => "world" },
-            doc.collect_namespaces)
+          assert_equal(
+            { "xmlns" => "hello", "xmlns:foo" => "world" },
+            doc.collect_namespaces,
+          )
         end
 
         def test_subclass_initialize_modify # testing a segv
@@ -250,7 +241,7 @@ module Nokogiri
         end
 
         def test_pp
-          out = StringIO.new((+""))
+          out = StringIO.new(+"")
           ::PP.pp(xml, out)
           assert_operator(out.string.length, :>, 0)
         end
@@ -271,6 +262,21 @@ module Nokogiri
           assert_equal("name", ss.name)
           assert_nil(ss.external_id)
           assert_equal("staff.dtd", ss.system_id)
+        end
+
+        def test_replacing_internal_subset
+          # see https://github.com/rgrove/sanitize/pull/238
+          skip_unless_libxml2("JRuby impl does not support unlinking the internal subset, it probably should")
+
+          document = Nokogiri::HTML5::Document.parse("<!DOCTYPE foo><html><div>hello</div></html>")
+
+          assert_equal("foo", document.internal_subset.name)
+
+          document.internal_subset.unlink
+          document.create_internal_subset("bar", nil, nil)
+
+          assert_equal("bar", document.internal_subset.name)
+          assert_operator(document.to_html, :start_with?, "<!DOCTYPE bar>")
         end
 
         def test_external_subset
@@ -433,8 +439,70 @@ module Nokogiri
           assert_nil(doc.validate)
         end
 
-        def test_clone
-          assert(xml.clone)
+        [:dup, :clone].each do |method|
+          define_method "test_document_#{method}" do
+            copy = xml.send(method)
+            assert_instance_of(Nokogiri::XML::Document, copy)
+            assert_predicate(copy, :xml?, "duplicate should be xml")
+            refute_empty(copy.xpath("//employee"))
+          end
+
+          # issue 1060
+          define_method "test_node_ownership_after_document_#{method}" do
+            html = "<html><head></head><body><div>replace me</div></body></html>"
+            doc = Nokogiri::XML::Document.parse(html)
+            copy = doc.send(method)
+            assert_same(copy, copy.at_css("div").document)
+
+            # should not raise an exception
+            copy.at_css("div").parse("<div>replaced</div>")
+          end
+
+          define_method "test_document_#{method}_shallow_copy" do
+            doc = Nokogiri::XML::Document.parse("<root><child/></root>")
+            copy = doc.send(method, 0)
+
+            refute_nil(doc.at_css("child"))
+            assert_nil(copy.at_css("child"))
+          end
+        end
+
+        def test_dup_should_not_copy_singleton_class
+          # https://github.com/sparklemotion/nokogiri/issues/316
+          m = Module.new do
+            def foo; end
+          end
+
+          doc = Nokogiri::XML::Document.parse("<root/>")
+          doc.extend(m)
+
+          assert_respond_to(doc, :foo)
+          refute_respond_to(doc.dup, :foo)
+        end
+
+        def test_clone_should_copy_singleton_class
+          # https://github.com/sparklemotion/nokogiri/issues/316
+          m = Module.new do
+            def foo; end
+          end
+
+          doc = Nokogiri::XML::Document.parse("<root/>")
+          doc.extend(m)
+
+          assert_respond_to(doc, :foo)
+          assert_respond_to(doc.clone, :foo)
+        end
+
+        def test_inspect_object_with_no_data_ptr
+          # test for the edge case when an exception is thrown during object construction/copy
+          doc = Nokogiri::XML("<root>")
+          refute_includes(doc.inspect, "(no data)")
+
+          if doc.respond_to?(:data_ptr?)
+            doc.stub(:data_ptr?, false) do
+              assert_includes(doc.inspect, "(no data)")
+            end
+          end
         end
 
         def test_document_should_not_have_default_ns
@@ -468,9 +536,9 @@ module Nokogiri
             options = cfg
             options.nonet.nowarning.dtdattr
           end
-          assert(options.nonet?)
-          assert(options.nowarning?)
-          assert(options.dtdattr?)
+          assert_predicate(options, :nonet?)
+          assert_predicate(options, :nowarning?)
+          assert_predicate(options, :dtdattr?)
         end
 
         def test_XML_takes_block
@@ -479,9 +547,9 @@ module Nokogiri
             options = cfg
             options.nonet.nowarning.dtdattr
           end
-          assert(options.nonet?)
-          assert(options.nowarning?)
-          assert(options.dtdattr?)
+          assert_predicate(options, :nonet?)
+          assert_predicate(options, :nowarning?)
+          assert_predicate(options, :dtdattr?)
         end
 
         def test_document_parse_method
@@ -491,32 +559,22 @@ module Nokogiri
           assert_equal(xml.root.to_s, xml.root.to_s)
         end
 
-        def test_encoding=
-          xml.encoding = "UTF-8"
-          assert_match("UTF-8", xml.to_xml)
-
-          xml.encoding = "EUC-JP"
-          assert_match("EUC-JP", xml.to_xml)
-        end
-
         def test_namespace_should_not_exist
           assert_raises(NoMethodError) do
             xml.namespace
           end
         end
 
-        def test_non_existant_function
-          # WTF.  I don't know why this is different between MRI and Jruby
-          # They should be the same...  Either way, raising an exception
-          # is the correct thing to do.
-          exception = RuntimeError
-
-          if !Nokogiri.uses_libxml? || (Nokogiri.uses_libxml? && Nokogiri::VERSION_INFO["libxml"]["platform"] == "jruby")
-            exception = Nokogiri::XML::XPath::SyntaxError
-          end
-
-          assert_raises(exception) do
+        def test_non_existent_function
+          exception = assert_raises(Nokogiri::XML::XPath::SyntaxError) do
             xml.xpath("//name[foo()]")
+          end
+          if Nokogiri.jruby?
+            assert_includes(exception.message, "Could not find function: foo")
+          elsif Nokogiri.uses_libxml?(">= 2.13") # upstream commit 954b8984
+            assert_includes(exception.message, "Unregistered function")
+          else
+            assert_match(/xmlXPathCompOpEval: function .* not found/, exception.message)
           end
         end
 
@@ -588,11 +646,9 @@ module Nokogiri
           assert_indent(5, doc)
         end
 
-        unless Nokogiri.uses_libxml?("~> 2.6.0")
-          def test_encoding
-            xml = Nokogiri::XML(File.read(XML_FILE), XML_FILE, "UTF-8")
-            assert_equal("UTF-8", xml.encoding)
-          end
+        def test_encoding
+          xml = Nokogiri::XML(File.read(XML_FILE), XML_FILE, "UTF-8")
+          assert_equal("UTF-8", xml.encoding)
         end
 
         def test_memory_explosion_on_invalid_xml
@@ -607,20 +663,26 @@ module Nokogiri
           refute_empty(doc.errors)
         end
 
-        def test_document_has_errors
-          doc = Nokogiri::XML(<<~eoxml)
-            <foo><bar></foo>
-          eoxml
+        def test_document_errors
+          doc = Nokogiri::XML("<foo><bar></foo>")
+
           refute_empty(doc.errors)
           doc.errors.each do |error|
             assert_match(error.message, error.inspect)
             assert_match(error.message, error.to_s)
           end
+
+          assert_equal(doc.errors, doc.dup.errors)
+          assert_equal(doc.errors, doc.clone.errors)
         end
 
         def test_strict_document_throws_syntax_error
           assert_raises(Nokogiri::XML::SyntaxError) do
             Nokogiri::XML("<foo><bar></foo>", nil, nil, 0)
+          end
+
+          assert_raises(Nokogiri::XML::SyntaxError) do
+            Nokogiri::XML("<foo><bar></foo>", options: 0)
           end
 
           assert_raises(Nokogiri::XML::SyntaxError) do
@@ -634,11 +696,16 @@ module Nokogiri
 
         def test_XML_function
           xml = Nokogiri::XML(File.read(XML_FILE), XML_FILE)
-          assert(xml.xml?)
+          assert_predicate(xml, :xml?)
         end
 
         def test_url
           assert(xml.url)
+          assert_equal(XML_FILE, xml.url)
+        end
+
+        def test_url_kwarg
+          xml = Nokogiri::XML::Document.parse(File.read(XML_FILE), url: XML_FILE)
           assert_equal(XML_FILE, xml.url)
         end
 
@@ -659,7 +726,7 @@ module Nokogiri
           File.open(XML_FILE, "rb") do |f|
             xml = Nokogiri::XML(f)
           end
-          assert(xml.xml?)
+          assert_predicate(xml, :xml?)
           assert_equal(XML_FILE, xml.url)
           set = xml.search("//employee")
           refute_empty(set)
@@ -699,13 +766,15 @@ module Nokogiri
 
         # issue #1821, #2110
         def test_parse_can_take_pathnames
-          assert(File.size(XML_ATOM_FILE) > 4096) # file must be big enough to trip the read callback more than once
+          assert_operator(File.size(XML_ATOM_FILE), :>, 4096) # file must be big enough to trip the read callback more than once
 
           doc = Nokogiri::XML.parse(Pathname.new(XML_ATOM_FILE))
 
           # an arbitrary assertion on the structure of the document
-          assert_equal(20, doc.xpath("/xmlns:feed/xmlns:entry/xmlns:author",
-            "xmlns" => "http://www.w3.org/2005/Atom").length)
+          assert_equal(20, doc.xpath(
+            "/xmlns:feed/xmlns:entry/xmlns:author",
+            "xmlns" => "http://www.w3.org/2005/Atom",
+          ).length)
           assert_equal(XML_ATOM_FILE, doc.url)
         end
 
@@ -777,7 +846,7 @@ module Nokogiri
         end
 
         def test_xml?
-          assert(xml.xml?)
+          assert_predicate(xml, :xml?)
         end
 
         def test_document
@@ -825,16 +894,10 @@ module Nokogiri
           assert(xml.to_xml)
         end
 
-        def test_dup
-          dup = xml.dup
-          assert_instance_of(Nokogiri::XML::Document, dup)
-          assert(dup.xml?, "duplicate should be xml")
-        end
-
         def test_new
           doc = Nokogiri::XML::Document.new
           assert(doc)
-          assert(doc.xml?)
+          assert_predicate(doc, :xml?)
           assert_nil(doc.root)
         end
 
@@ -931,9 +994,11 @@ module Nokogiri
         end
 
         def test_can_be_closed
-          f = File.open(XML_FILE)
-          Nokogiri::XML(f)
-          f.close
+          refute_raises do
+            f = File.open(XML_FILE)
+            Nokogiri::XML(f)
+            f.close
+          end
         end
 
         describe "JRuby-only methods" do
@@ -1021,7 +1086,7 @@ module Nokogiri
           end
 
           it "sets the test up correctly" do
-            assert(xml_strict.strict?)
+            assert_predicate(xml_strict, :strict?)
           end
 
           describe "read memory" do
@@ -1031,9 +1096,17 @@ module Nokogiri
               let(:parse_options) { xml_strict }
 
               it "raises exception on parse error" do
-                assert_raises Nokogiri::SyntaxError do
+                error = assert_raises Nokogiri::SyntaxError do
                   Nokogiri::XML.parse(input, nil, nil, parse_options)
                 end
+                assert_nil(error.path)
+              end
+
+              it "raises exception on parse error with kwargs" do
+                error = assert_raises Nokogiri::SyntaxError do
+                  Nokogiri::XML.parse(input, options: parse_options)
+                end
+                assert_nil(error.path)
               end
             end
 
@@ -1054,6 +1127,12 @@ module Nokogiri
               it "raises exception on parse error" do
                 assert_raises Nokogiri::SyntaxError do
                   Nokogiri::XML.parse(input, nil, nil, parse_options)
+                end
+              end
+
+              it "raises exception on parse error with kwargs" do
+                assert_raises Nokogiri::SyntaxError do
+                  Nokogiri::XML.parse(input, options: parse_options)
                 end
               end
             end
@@ -1103,6 +1182,11 @@ module Nokogiri
             assert_instance_of(klass, doc)
           end
 
+          it "#clone returns the expected class" do
+            doc = klass.new.clone
+            assert_instance_of(klass, doc)
+          end
+
           describe ".parse" do
             it "returns an instance of the expected class" do
               doc = klass.parse(File.read(XML_FILE))
@@ -1144,13 +1228,6 @@ module Nokogiri
             assert_nil(target.root)
             target.root = source.root
             assert_equal("foo", target.root.content)
-          end
-
-          it "doesn't leak the replaced node" do
-            skip("only run if NOKOGIRI_GC is set") unless ENV["NOKOGIRI_GC"]
-            doc = Nokogiri::XML("<root>test</root>")
-            doc2 = Nokogiri::XML("<root>#{"x" * 5000000}</root>")
-            doc2.root = doc.root
           end
 
           it "raises an exception if passed something besides a Node" do

@@ -83,15 +83,14 @@ module Nokogiri
       end
 
       def test_each
-        attributes = []
-        @node.xpath(".//address")[1].each do |key, value|
-          attributes << [key, value]
+        attributes = @node.xpath(".//address")[1].map do |key, value|
+          [key, value]
         end
         assert_equal([["domestic", "Yes"], ["street", "Yes"]], attributes)
       end
 
       def test_new
-        assert(node = Nokogiri::XML::Node.new("input", @node))
+        assert(node = Nokogiri::XML::Node.new("input", @node.document))
         assert_equal(1, node.node_type)
       end
 
@@ -104,8 +103,10 @@ module Nokogiri
       def test_ancestors
         assert(address = @node.xpath(".//address").first)
         assert_equal(2, address.ancestors.length)
-        assert_equal(["employee", "staff"],
-          address.ancestors.map { |x| x ? x.name : x })
+        assert_equal(
+          ["employee", "staff"],
+          address.ancestors.map { |x| x ? x.name : x },
+        )
       end
 
       def test_read_only?
@@ -113,7 +114,7 @@ module Nokogiri
           x.type == Node::ENTITY_DECL
         end
         assert(entity_decl)
-        assert(entity_decl.read_only?)
+        assert_predicate(entity_decl, :read_only?)
       end
 
       def test_remove_attribute
@@ -193,39 +194,51 @@ module Nokogiri
       end
 
       def test_add_previous_sibling_merge
-        xml = Nokogiri::XML(<<-eoxml)
-        <root>
-          <a>Hello world</a>
-        </root>
-        eoxml
-
-        assert(a_tag = xml.css("a").first)
-
+        xml = Nokogiri::XML("<root>  <a>Hello world</a>   </root>")
+        a_tag = xml.at_css("a")
         left_space = a_tag.previous
         right_space = a_tag.next
-        assert(left_space.text?)
-        assert(right_space.text?)
+
+        assert_equal("  ", left_space.content)
+        assert_predicate(left_space, :text?)
+        assert_equal("   ", right_space.content)
+        assert_predicate(right_space, :text?)
 
         left_space.add_previous_sibling(right_space)
-        assert_equal(left_space, right_space)
+
+        if Nokogiri.uses_libxml?(">= 2.13.0")
+          # after gnome/libxml2@f43197fc text nodes are never merged
+          assert_equal("  ", left_space.content)
+          assert_equal("   ", right_space.content)
+        else
+          # before gnome/libxml2@f43197fc blank text nodes are merged
+          assert_equal("     ", left_space.content)
+          assert_equal("     ", right_space.content)
+        end
       end
 
       def test_add_next_sibling_merge
-        xml = Nokogiri::XML(<<-eoxml)
-        <root>
-          <a>Hello world</a>
-        </root>
-        eoxml
-
-        assert(a_tag = xml.css("a").first)
-
+        xml = Nokogiri::XML("<root>  <a>Hello world</a>   </root>")
+        a_tag = xml.at_css("a")
         left_space = a_tag.previous
         right_space = a_tag.next
-        assert(left_space.text?)
-        assert(right_space.text?)
+
+        assert_equal("  ", left_space.content)
+        assert_predicate(left_space, :text?)
+        assert_equal("   ", right_space.content)
+        assert_predicate(right_space, :text?)
 
         right_space.add_next_sibling(left_space)
-        assert_equal(left_space, right_space)
+
+        if Nokogiri.uses_libxml?(">= 2.13.0")
+          # after gnome/libxml2@f43197fc text nodes are never merged
+          assert_equal("  ", left_space.content)
+          assert_equal("   ", right_space.content)
+        else
+          # before gnome/libxml2@f43197fc blank text nodes are merged
+          assert_equal("     ", left_space.content)
+          assert_equal("     ", right_space.content)
+        end
       end
 
       def test_add_next_sibling_to_root_raises_exception
@@ -423,7 +436,7 @@ module Nokogiri
       end
 
       def test_content
-        node = Nokogiri::XML::Node.new("form", @node)
+        node = Nokogiri::XML::Node.new("form", @node.document)
         assert_equal("", node.content)
 
         node.content = "hello world!"
@@ -445,7 +458,7 @@ module Nokogiri
         first = set[0]
         second = set[1]
 
-        node = Nokogiri::XML::Node.new("form", @node)
+        node = Nokogiri::XML::Node.new("form", @node.document)
         first.replace(node)
 
         assert(set = @node.search(".//employee"))

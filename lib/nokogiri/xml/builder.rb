@@ -234,7 +234,7 @@ module Nokogiri
     #
     # == Document Types
     #
-    # To create a document type (DTD), access use the Builder#doc method to get
+    # To create a document type (DTD), use the Builder#doc method to get
     # the current context document.  Then call Node#create_internal_subset to
     # create the DTD node.
     #
@@ -262,6 +262,8 @@ module Nokogiri
     #   </root>
     #
     class Builder
+      include Nokogiri::ClassResolver
+
       DEFAULT_DOCUMENT_OPTIONS = { namespace_inheritance: true }
 
       # The current Document object being built
@@ -307,13 +309,7 @@ module Nokogiri
           @doc = root.document
           @parent = root
         else
-          klassname = "::" + (self.class.name.split("::")[0..-2] + ["Document"]).join("::")
-          klass = begin
-            Object.const_get(klassname)
-          rescue NameError
-            Nokogiri::XML::Document
-          end
-          @parent = @doc = klass.new
+          @parent = @doc = related_class("Document").new
         end
 
         @context = nil
@@ -367,6 +363,7 @@ module Nokogiri
 
         @parent.ancestors.each do |a|
           next if a == doc
+
           @ns = a.namespace_definitions.find { |x| x.prefix == ns.to_s }
           return self if @ns
         end
@@ -411,6 +408,7 @@ module Nokogiri
             if node.namespace.nil?
               raise ArgumentError, "Namespace #{@ns[:pending]} has not been defined"
             end
+
             @ns = nil
           end
 
@@ -477,7 +475,14 @@ module Nokogiri
           if block
             old_parent = @doc_builder.parent
             @doc_builder.parent = @node
-            value = @doc_builder.instance_eval(&block)
+
+            arity = @doc_builder.arity || block.arity
+            value = if arity <= 0
+              @doc_builder.instance_eval(&block)
+            else
+              yield(@doc_builder)
+            end
+
             @doc_builder.parent = old_parent
             return value
           end

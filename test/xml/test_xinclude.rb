@@ -12,7 +12,7 @@ module Nokogiri
       end
 
       def test_xinclude_on_document_parse
-        skip_unless_libxml2("Pure Java version XInlcude has a conflict with NekoDTD setting. This will be fixed later.")
+        skip_unless_libxml2("Pure Java version XInclude has a conflict with NekoDTD setting. This will be fixed later.")
         # first test that xinclude works when requested
         xml_doc = nil
 
@@ -40,7 +40,7 @@ module Nokogiri
       end
 
       def test_xinclude_on_document_node
-        skip_unless_libxml2("Pure Java version turns XInlcude on against a parser.")
+        skip_unless_libxml2("Pure Java version turns XInclude on against a parser.")
         assert_nil(@xml.at_xpath("//included"))
         @xml.do_xinclude
         refute_nil(included = @xml.at_xpath("//included"))
@@ -48,7 +48,7 @@ module Nokogiri
       end
 
       def test_xinclude_on_element_subtree
-        skip_unless_libxml2("Pure Java version turns XInlcude on against a parser.")
+        skip_unless_libxml2("Pure Java version turns XInclude on against a parser.")
         assert_nil(@xml.at_xpath("//included"))
         @xml.root.do_xinclude
         refute_nil(included = @xml.at_xpath("//included"))
@@ -56,7 +56,7 @@ module Nokogiri
       end
 
       def test_do_xinclude_accepts_block
-        non_default_options = Nokogiri::XML::ParseOptions::NOBLANKS | \
+        non_default_options = Nokogiri::XML::ParseOptions::NOBLANKS |
           Nokogiri::XML::ParseOptions::XINCLUDE
 
         @xml.do_xinclude(non_default_options) do |options|

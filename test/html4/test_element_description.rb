@@ -19,17 +19,17 @@ module Nokogiri
       end
 
       def test_implied_start_tag?
-        refute(ElementDescription["a"].implied_start_tag?)
+        refute_predicate(ElementDescription["a"], :implied_start_tag?)
       end
 
       def test_implied_end_tag?
-        refute(ElementDescription["a"].implied_end_tag?)
-        assert(ElementDescription["p"].implied_end_tag?)
+        refute_predicate(ElementDescription["a"], :implied_end_tag?)
+        assert_predicate(ElementDescription["p"], :implied_end_tag?)
       end
 
       def test_save_end_tag?
-        refute(ElementDescription["a"].save_end_tag?)
-        assert(ElementDescription["br"].save_end_tag?)
+        refute_predicate(ElementDescription["a"], :save_end_tag?)
+        assert_predicate(ElementDescription["br"], :save_end_tag?)
       end
 
       def test_empty?
@@ -38,13 +38,13 @@ module Nokogiri
       end
 
       def test_deprecated?
-        assert(ElementDescription["applet"].deprecated?)
-        refute(ElementDescription["br"].deprecated?)
+        assert_predicate(ElementDescription["applet"], :deprecated?)
+        refute_predicate(ElementDescription["br"], :deprecated?)
       end
 
       def test_inline?
-        assert(ElementDescription["a"].inline?)
-        refute(ElementDescription["div"].inline?)
+        assert_predicate(ElementDescription["strong"], :inline?)
+        refute_predicate(ElementDescription["div"], :inline?)
       end
 
       def test_block?
@@ -58,22 +58,31 @@ module Nokogiri
 
       def test_subelements
         sub_elements = ElementDescription["body"].sub_elements
-        if Nokogiri.uses_libxml?(">= 2.7.7")
-          assert_equal(65, sub_elements.length)
+        if Nokogiri.uses_libxml?(">= 2.14.0")
+          assert_equal(0, sub_elements.length)
         elsif Nokogiri.uses_libxml?
-          assert_equal(61, sub_elements.length)
+          assert_equal(65, sub_elements.length)
         else
-          refute_empty(sub_elements)
+          assert_equal(105, sub_elements.length)
         end
       end
 
       def test_default_sub_element
-        assert_equal("div", ElementDescription["body"].default_sub_element)
+        sub_element = ElementDescription["body"].default_sub_element
+        if Nokogiri.uses_libxml?(">= 2.14.0")
+          assert_nil(sub_element)
+        else
+          assert_equal("div", sub_element)
+        end
       end
 
       def test_null_default_sub_element
-        doc = Nokogiri::HTML("foo")
-        doc.root.description.default_sub_element
+        # https://github.com/sparklemotion/nokogiri/issues/917
+        doc = Nokogiri::HTML4("foo")
+
+        refute_raises do
+          doc.root.description.default_sub_element
+        end
       end
 
       def test_optional_attributes
@@ -84,7 +93,11 @@ module Nokogiri
       def test_deprecated_attributes
         attrs = ElementDescription["table"].deprecated_attributes
         assert(attrs)
-        assert_equal(2, attrs.length)
+        if Nokogiri.uses_libxml?(">= 2.14.0")
+          assert_equal(0, attrs.length)
+        else
+          assert_equal(2, attrs.length)
+        end
       end
 
       def test_required_attributes

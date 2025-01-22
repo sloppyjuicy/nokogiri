@@ -4,7 +4,8 @@ module Nokogiri
   module XML
     class Node
       ###
-      # Save options for serializing nodes
+      # Save options for serializing nodes.
+      # See the method group entitled Node@Serialization+and+Generating+Output for usage.
       class SaveOptions
         # Format serialized xml
         FORMAT          = 1
@@ -28,14 +29,16 @@ module Nokogiri
           DEFAULT_XML  = AS_XML # https://github.com/sparklemotion/nokogiri/issues/#issue/415
           # the default for HTML document
           DEFAULT_HTML = NO_DECLARATION | NO_EMPTY_TAGS | AS_HTML
+          # the default for XHTML document
+          DEFAULT_XHTML = NO_DECLARATION | AS_XHTML
         else
           # the default for XML documents
           DEFAULT_XML  = FORMAT | AS_XML
           # the default for HTML document
           DEFAULT_HTML = FORMAT | NO_DECLARATION | NO_EMPTY_TAGS | AS_HTML
+          # the default for XHTML document
+          DEFAULT_XHTML = FORMAT | NO_DECLARATION | AS_XHTML
         end
-        # the default for XHTML document
-        DEFAULT_XHTML = FORMAT | NO_DECLARATION | AS_XHTML
 
         # Integer representation of the SaveOptions
         attr_reader :options
@@ -46,7 +49,7 @@ module Nokogiri
         end
 
         constants.each do |constant|
-          class_eval %{
+          class_eval <<~RUBY, __FILE__, __LINE__ + 1
             def #{constant.downcase}
               @options |= #{constant}
               self
@@ -55,10 +58,18 @@ module Nokogiri
             def #{constant.downcase}?
               #{constant} & @options == #{constant}
             end
-          }
+          RUBY
         end
 
         alias_method :to_i, :options
+
+        def inspect
+          options = []
+          self.class.constants.each do |k|
+            options << k.downcase if send(:"#{k.downcase}?")
+          end
+          super.sub(/>$/, " " + options.join(", ") + ">")
+        end
       end
     end
   end

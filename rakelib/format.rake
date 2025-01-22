@@ -42,6 +42,10 @@ module AstyleHelper
 
         # gotta set a limit somewhere
         "--max-code-length=120",
+
+        # be quiet about files that haven't changed
+        "--formatted",
+        "--verbose",
       ]
     end
 
@@ -58,19 +62,32 @@ end
 namespace "format" do
   desc "Format Nokogiri's C code"
   task "c" do
+    puts "Running astyle on C files ..."
     AstyleHelper.run(AstyleHelper.c_files)
   end
 
   desc "Format Nokogiri's Java code"
   task "java" do
+    puts "Running astyle on Java files ..."
     AstyleHelper.run(AstyleHelper.java_files)
   end
 
   desc "Format Nokogiri's Ruby code"
-  task "ruby" => "rubocop:check:auto_correct"
+  task "ruby" => "rubocop:check:autocorrect"
+
+  desc "Regenerate tables of contents in some files"
+  task "toc" do
+    require "mkmf"
+    if find_executable0("markdown-toc")
+      sh "markdown-toc --maxdepth=2 -i CONTRIBUTING.md"
+      sh "markdown-toc -i LICENSE-DEPENDENCIES.md"
+    else
+      puts "WARN: cannot find markdown-toc, skipping. install with 'npm install markdown-toc'"
+    end
+  end
 
   CLEAN.add(AstyleHelper.c_files.map { |f| "#{f}.orig" })
   CLEAN.add(AstyleHelper.java_files.map { |f| "#{f}.orig" })
 end
 
-task "format" => ["format:c", "format:java", "format:ruby"]
+task "format" => ["format:c", "format:java", "format:ruby", "format:toc"]

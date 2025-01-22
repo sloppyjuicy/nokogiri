@@ -5,19 +5,6 @@ require "helper"
 module Nokogiri
   module XML
     class TestXPath < Nokogiri::TestCase
-      # ** WHY ALL THOSE _if Nokogiri.uses_libxml?_ **
-      # Hi, my dear readers,
-      #
-      # After reading these tests you may be wondering why all those ugly
-      # if Nokogiri.uses_libxml? sparsed over the whole document. Well, let
-      # me explain it. While using XPath in Java, you need the extension
-      # functions to be in a namespace. This is not required by XPath, afaik,
-      # but it is an usual convention though.
-      #
-      # Yours truly,
-      #
-      # The guy whose headaches belong to Nokogiri JRuby impl.
-
       def setup
         super
 
@@ -122,9 +109,27 @@ module Nokogiri
       def test_css_search_with_ambiguous_integer_or_string_attributes
         # https://github.com/sparklemotion/nokogiri/issues/711
         html = "<body><div><img width=200>"
-        doc = Nokogiri::HTML(html)
+        doc = Nokogiri::HTML4(html)
         refute_nil(doc.at_css("img[width='200']"))
         refute_nil(doc.at_css("img[width=200]"))
+      end
+
+      def test_xpath_with_nonnamespaced_custom_function_is_deprecated_but_works
+        skip_unless_libxml2("only deprecated in CRuby")
+
+        result = nil
+        assert_output("", /Invoking custom handler functions without a namespace is deprecated/) do
+          result = @xml.xpath("anint()", @handler)
+        end
+        assert_equal(1230456, result)
+      end
+
+      def test_xpath_with_namespaced_custom_function_is_not_deprecated
+        result = nil
+        assert_silent do
+          result = @xml.xpath("nokogiri:anint()", @handler)
+        end
+        assert_equal(1230456, result)
       end
 
       def test_css_search_uses_custom_selectors_with_arguments
@@ -151,11 +156,7 @@ module Nokogiri
       end
 
       def test_search_with_xpath_query_uses_custom_selectors_with_arguments
-        set = if Nokogiri.uses_libxml?
-          @xml.search('//employee/address[my_filter(., "domestic", "Yes")]', @handler)
-        else
-          @xml.search('//employee/address[nokogiri:my_filter(., "domestic", "Yes")]', @handler)
-        end
+        set = @xml.search('//employee/address[nokogiri:my_filter(., "domestic", "Yes")]', @handler)
         refute_empty(set)
         set.each do |node|
           assert_equal("Yes", node["domestic"])
@@ -163,11 +164,7 @@ module Nokogiri
       end
 
       def test_pass_self_to_function
-        set = if Nokogiri.uses_libxml?
-          @xml.xpath('//employee/address[my_filter(., "domestic", "Yes")]', @handler)
-        else
-          @xml.xpath('//employee/address[nokogiri:my_filter(., "domestic", "Yes")]', @handler)
-        end
+        set = @xml.xpath('//employee/address[nokogiri:my_filter(., "domestic", "Yes")]', @handler)
         refute_empty(set)
         set.each do |node|
           assert_equal("Yes", node["domestic"])
@@ -176,11 +173,7 @@ module Nokogiri
 
       def test_custom_xpath_function_gets_strings
         set = @xml.xpath("//employee")
-        if Nokogiri.uses_libxml?
-          @xml.xpath('//employee[thing("asdf")]', @handler)
-        else
-          @xml.xpath('//employee[nokogiri:thing("asdf")]', @handler)
-        end
+        @xml.xpath('//employee[nokogiri:thing("asdf")]', @handler)
         assert_equal(set.length, @handler.things.length)
         assert_equal(["asdf"] * set.length, @handler.things)
       end
@@ -242,65 +235,41 @@ module Nokogiri
       end
 
       def test_custom_xpath_function_returns_string
-        result = if Nokogiri.uses_libxml?
-          @xml.xpath('thing("asdf")', @handler)
-        else
-          @xml.xpath('nokogiri:thing("asdf")', @handler)
-        end
+        result = @xml.xpath('nokogiri:thing("asdf")', @handler)
         assert_equal("asdf", result)
       end
 
       def test_custom_xpath_gets_true_booleans
         set = @xml.xpath("//employee")
-        if Nokogiri.uses_libxml?
-          @xml.xpath("//employee[thing(true())]", @handler)
-        else
-          @xml.xpath("//employee[nokogiri:thing(true())]", @handler)
-        end
+        @xml.xpath("//employee[nokogiri:thing(true())]", @handler)
         assert_equal(set.length, @handler.things.length)
         assert_equal([true] * set.length, @handler.things)
       end
 
       def test_custom_xpath_gets_false_booleans
         set = @xml.xpath("//employee")
-        if Nokogiri.uses_libxml?
-          @xml.xpath("//employee[thing(false())]", @handler)
-        else
-          @xml.xpath("//employee[nokogiri:thing(false())]", @handler)
-        end
+        @xml.xpath("//employee[nokogiri:thing(false())]", @handler)
         assert_equal(set.length, @handler.things.length)
         assert_equal([false] * set.length, @handler.things)
       end
 
       def test_custom_xpath_gets_numbers
         set = @xml.xpath("//employee")
-        if Nokogiri.uses_libxml?
-          @xml.xpath("//employee[thing(10)]", @handler)
-        else
-          @xml.xpath("//employee[nokogiri:thing(10)]", @handler)
-        end
+        @xml.xpath("//employee[nokogiri:thing(10)]", @handler)
         assert_equal(set.length, @handler.things.length)
         assert_equal([10] * set.length, @handler.things)
       end
 
       def test_custom_xpath_gets_node_sets
         set = @xml.xpath("//employee/name")
-        if Nokogiri.uses_libxml?
-          @xml.xpath("//employee[thing(name)]", @handler)
-        else
-          @xml.xpath("//employee[nokogiri:thing(name)]", @handler)
-        end
+        @xml.xpath("//employee[nokogiri:thing(name)]", @handler)
         assert_equal(set.length, @handler.things.length)
         assert_equal(set.to_a, @handler.things.flatten)
       end
 
       def test_custom_xpath_gets_node_sets_and_returns_array
         set = @xml.xpath("//employee/name")
-        if Nokogiri.uses_libxml?
-          @xml.xpath("//employee[returns_array(name)]", @handler)
-        else
-          @xml.xpath("//employee[nokogiri:returns_array(name)]", @handler)
-        end
+        @xml.xpath("//employee[nokogiri:returns_array(name)]", @handler)
         assert_equal(set.length, @handler.things.length)
         assert_equal(set.to_a, @handler.things.flatten)
       end
@@ -313,7 +282,7 @@ module Nokogiri
 
         assert(@xml.xpath("//employee/name"))
 
-        @xml.xpath("//employee[saves_node_set(name)]", @handler)
+        @xml.xpath("//employee[nokogiri:saves_node_set(name)]", @handler)
         assert_equal(@xml, @handler.things.document)
         assert_respond_to(@handler.things, :awesome!)
       end
@@ -321,7 +290,7 @@ module Nokogiri
       def test_code_that_invokes_OP_RESET_inside_libxml2
         doc = "<html><body id='foo'><foo>hi</foo></body></html>"
         xpath = 'id("foo")//foo'
-        nokogiri = Nokogiri::HTML.parse(doc)
+        nokogiri = Nokogiri::HTML4.parse(doc)
         assert(nokogiri.xpath(xpath))
       end
 
@@ -348,7 +317,7 @@ module Nokogiri
 
           # long list of long arguments, to apply GC pressure during
           # ruby_funcall argument marshalling
-          xpath = ["//tool[name_equals(.,'hammer'"]
+          xpath = ["//tool[nokogiri:name_equals(.,'hammer'"]
           500.times { xpath << "'unused argument #{"x" * 1000}'" }
           xpath << "'unused argument')]"
           xpath = xpath.join(",")
@@ -358,32 +327,26 @@ module Nokogiri
       end
 
       def test_custom_xpath_without_arguments
-        value = if Nokogiri.uses_libxml?
-          @xml.xpath("value()", @handler)
-        else
-          @xml.xpath("nokogiri:value()", @handler)
-        end
+        value = @xml.xpath("nokogiri:value()", @handler)
         assert_in_delta(123.456, value)
       end
 
       def test_custom_xpath_without_arguments_returning_int
-        value = if Nokogiri.uses_libxml?
-          @xml.xpath("anint()", @handler)
-        else
-          @xml.xpath("nokogiri:anint()", @handler)
-        end
+        value = @xml.xpath("nokogiri:anint()", @handler)
         assert_equal(1230456, value)
       end
 
       def test_custom_xpath_with_bullshit_arguments
         xml = "<foo> </foo>"
         doc = Nokogiri::XML.parse(xml)
-        foo = doc.xpath("//foo[bool_function(bar/baz)]",
+        foo = doc.xpath(
+          "//foo[nokogiri:bool_function(bar/baz)]",
           Class.new do
             def bool_function(value)
               true
             end
-          end.new)
+          end.new,
+        )
         assert_equal(foo, doc.xpath("//foo"))
       end
 
@@ -483,12 +446,11 @@ module Nokogiri
       end
 
       def test_huge_xpath_query
-        if Nokogiri.uses_libxml?("~>2.9.11") && !Nokogiri::VERSION_INFO["libxml"]["patches"]&.include?("0007-Fix-XPath-recursion-limit.patch")
-          skip("libxml2 under test is broken with respect to xpath query recusion depth")
+        if Nokogiri::VersionInfo.instance.libxml2_using_system? && Nokogiri.uses_libxml?([">= 2.9.11", "< 2.9.13"])
+          skip("upstream libxml2 3e1aad4f")
         end
 
-        # real world example
-        # from https://github.com/sparklemotion/nokogiri/issues/2257
+        # real world example from https://github.com/sparklemotion/nokogiri/issues/2257
         query = File.read(File.join(ASSETS_DIR, "huge-xpath-query.txt"))
 
         doc = Nokogiri::XML::Document.parse("<root></root>")
@@ -501,12 +463,13 @@ module Nokogiri
             42
           end
         end
-        doc.xpath(query, { "ct" => "https://test.nokogiri.org/ct", "date" => "https://test.nokogiri.org/date" }, handler.new)
+        result = doc.xpath(query, { "ct" => "https://test.nokogiri.org/ct", "date" => "https://test.nokogiri.org/date" }, handler.new)
+        assert(result)
       end
 
       describe "nokogiri-builtin:css-class xpath function" do
         before do
-          @doc = Nokogiri::HTML::Document.parse("<html></html>")
+          @doc = Nokogiri::HTML4::Document.parse("<html></html>")
         end
 
         it "accepts exactly two arguments" do
@@ -587,23 +550,145 @@ module Nokogiri
 
         it "handles multiple handler function calls" do
           # test that jruby handles this case identically to C
-          result = @xml.xpath("//employee[thing(.)]/employeeId[another_thing(.)]", @handler)
+          result = @xml.xpath("//employee[nokogiri:thing(.)]/employeeId[nokogiri:another_thing(.)]", @handler)
           assert_equal(5, result.length)
           assert_equal(10, @handler.things.length)
         end
 
         it "doesn't get confused by an XPath function, flavor 1" do
           # test that it doesn't get confused by an XPath function
-          result = @xml.xpath("//employee[thing(.)]/employeeId[last()]", @handler)
+          result = @xml.xpath("//employee[nokogiri:thing(.)]/employeeId[last()]", @handler)
           assert_equal(5, result.length)
           assert_equal(5, @handler.things.length)
         end
 
         it "doesn't get confused by an XPath function, flavor 2" do
           # test that it doesn't get confused by an XPath function
-          result = @xml.xpath("//employee[last()]/employeeId[thing(.)]", @handler)
+          result = @xml.xpath("//employee[last()]/employeeId[nokogiri:thing(.)]", @handler)
           assert_equal(1, result.length)
           assert_equal(1, @handler.things.length)
+        end
+      end
+
+      describe "Document#xpath_doctype" do
+        it "Nokogiri::XML::Document" do
+          assert_equal(
+            Nokogiri::CSS::XPathVisitor::DoctypeConfig::XML,
+            Nokogiri::XML::Document.parse("<root></root>").xpath_doctype,
+          )
+          assert_equal(
+            Nokogiri::CSS::XPathVisitor::DoctypeConfig::XML,
+            Nokogiri::XML::DocumentFragment.parse("<root></root>").document.xpath_doctype,
+          )
+        end
+
+        it "Nokogiri::HTML4::Document" do
+          assert_equal(
+            Nokogiri::CSS::XPathVisitor::DoctypeConfig::HTML4,
+            Nokogiri::HTML4::Document.parse("<root></root>").xpath_doctype,
+          )
+          assert_equal(
+            Nokogiri::CSS::XPathVisitor::DoctypeConfig::HTML4,
+            Nokogiri::HTML4::DocumentFragment.parse("<root></root>").document.xpath_doctype,
+          )
+        end
+
+        it "Nokogiri::HTML5::Document" do
+          skip("HTML5 is not supported") unless defined?(Nokogiri::HTML5)
+          assert_equal(
+            Nokogiri::CSS::XPathVisitor::DoctypeConfig::HTML5,
+            Nokogiri::HTML5::Document.parse("<root></root>").xpath_doctype,
+          )
+          assert_equal(
+            Nokogiri::CSS::XPathVisitor::DoctypeConfig::HTML5,
+            Nokogiri::HTML5::DocumentFragment.parse("<root></root>").document.xpath_doctype,
+          )
+        end
+      end
+
+      describe "HTML5 foreign elements" do
+        # https://github.com/sparklemotion/nokogiri/issues/2376
+        let(:html) { <<~HTML }
+          <!DOCTYPE html>
+          <html>
+            <body>
+              <div id="svg-container">
+                <svg version="1.1" width="300" height="200" xmlns="http://www.w3.org/2000/svg">
+                  <rect width="100%" height="100%" fill="red" />
+                  <circle cx="150" cy="100" r="80" fill="green" />
+                  <text x="150" y="125" font-size="60" text-anchor="middle" fill="white">SVG</text>
+                </svg>
+              </div>
+            </body>
+          </html>
+        HTML
+
+        let(:ns) { { "nsfoo" => "http://www.w3.org/2000/svg" } }
+
+        describe "in an XML doc" do
+          let(:doc) { Nokogiri::XML::Document.parse(html) }
+
+          it "requires namespace in XPath queries" do
+            assert_empty(doc.xpath("//svg"))
+            refute_empty(doc.xpath("//nsfoo:svg", ns))
+          end
+
+          it "requires namespace in CSS queries" do
+            assert_empty(doc.css("svg"))
+            refute_empty(doc.css("nsfoo|svg", ns))
+          end
+        end
+
+        describe "in an HTML4 doc" do
+          let(:doc) { Nokogiri::HTML4::Document.parse(html) }
+
+          it "omits namespace in XPath queries" do
+            refute_empty(doc.xpath("//svg"))
+            assert_empty(doc.xpath("//nsfoo:svg", ns))
+          end
+
+          it "omits namespace in CSS queries" do
+            refute_empty(doc.css("svg"))
+            assert_empty(doc.css("nsfoo|svg", ns))
+          end
+        end
+
+        describe "in an HTML5 doc" do
+          let(:doc) { Nokogiri::HTML5::Document.parse(html) }
+
+          it "requires namespace in XPath queries" do
+            skip("HTML5 is not supported") unless defined?(Nokogiri::HTML5)
+            assert_empty(doc.xpath("//svg"))
+            refute_empty(doc.xpath("//nsfoo:svg", ns))
+          end
+
+          it "omits namespace in CSS queries" do
+            skip("HTML5 is not supported") unless defined?(Nokogiri::HTML5)
+            refute_empty(doc.css("svg"))
+            refute_empty(doc.css("nsfoo|svg", ns)) # if they specify the valid ns, use it
+            assert_empty(doc.css("nsbar|svg", { "nsbar" => "http://example.com/nsbar" }))
+          end
+        end
+      end
+
+      describe "XPath wildcard namespaces" do
+        let(:xml) { <<~XML }
+          <root xmlns:ns1="http://nokogiri.org/ns1" xmlns:ns2="http://nokogiri.org/ns2">
+            <ns1:child>ns1 child</ns1:child>
+            <ns2:child>ns2 child</ns2:child>
+            <child>plain child</child>
+          </root>
+        XML
+
+        let(:doc) { Nokogiri::XML::Document.parse(xml) }
+
+        it "allows namespace wildcards" do
+          skip_unless_libxml2_patch("0009-allow-wildcard-namespaces.patch")
+
+          assert_equal(1, doc.xpath("//n:child", { "n" => "http://nokogiri.org/ns1" }).length)
+          assert_equal(3, doc.xpath("//*:child").length)
+          assert_equal(1, doc.xpath("//self::n:child", { "n" => "http://nokogiri.org/ns1" }).length)
+          assert_equal(3, doc.xpath("//self::*:child").length)
         end
       end
     end

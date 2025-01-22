@@ -1,3 +1,4 @@
+# coding: utf-8
 # frozen_string_literal: true
 
 require "pathname"
@@ -91,7 +92,7 @@ module Nokogiri
         title = XML::Node.new("title", self) << tnode
         if (head = at_xpath("//head"))
           head << title
-        elsif (meta = (at_xpath("//meta[@charset]") || meta_content_type))
+        elsif (meta = at_xpath("//meta[@charset]") || meta_content_type)
           # better put after charset declaration
           meta.add_next_sibling(title)
         else
@@ -124,8 +125,9 @@ module Nokogiri
       private :set_metadata_element
 
       ####
-      # Serialize Node using +options+.  Save options can also be set using a
-      # block. See SaveOptions.
+      # Serialize Node using +options+. Save options can also be set using a block.
+      #
+      # See also Nokogiri::XML::Node::SaveOptions and Node@Serialization+and+Generating+Output.
       #
       # These two statements are equivalent:
       #
@@ -148,171 +150,84 @@ module Nokogiri
         DocumentFragment.new(self, tags, root)
       end
 
-      class << self
-        ###
-        # Parse HTML.  +string_or_io+ may be a String, or any object that
-        # responds to _read_ and _close_ such as an IO, or StringIO.
-        # +url+ is resource where this document is located.  +encoding+ is the
-        # encoding that should be used when processing the document. +options+
-        # is a number that sets options in the parser, such as
-        # Nokogiri::XML::ParseOptions::RECOVER.  See the constants in
-        # Nokogiri::XML::ParseOptions.
-        def parse(string_or_io, url = nil, encoding = nil, options = XML::ParseOptions::DEFAULT_HTML)
-          options = Nokogiri::XML::ParseOptions.new(options) if Integer === options
+      # :call-seq:
+      #   xpath_doctype() → Nokogiri::CSS::XPathVisitor::DoctypeConfig
+      #
+      # [Returns] The document type which determines CSS-to-XPath translation.
+      #
+      # See XPathVisitor for more information.
+      def xpath_doctype
+        Nokogiri::CSS::XPathVisitor::DoctypeConfig::HTML4
+      end
 
+      class << self
+        # :call-seq:
+        #   parse(input) { |options| ... } => Nokogiri::HTML4::Document
+        #   parse(input, url:, encoding:, options:) => Nokogiri::HTML4::Document
+        #
+        # Parse \HTML4 input from a String or IO object, and return a new HTML4::Document.
+        #
+        # [Required Parameters]
+        # - +input+ (String | IO) The content to be parsed.
+        #
+        # [Optional Keyword Arguments]
+        # - +url:+ (String) The base URI for this document.
+        #
+        # - +encoding:+ (String) The name of the encoding that should be used when processing the
+        #   document. When not provided, the encoding will be determined based on the document
+        #   content.
+        #
+        # - +options:+ (Nokogiri::XML::ParseOptions) Configuration object that determines some
+        #   behaviors during parsing. See ParseOptions for more information. The default value is
+        #   +ParseOptions::DEFAULT_HTML+.
+        #
+        # [Yields]
+        #   If a block is given, a Nokogiri::XML::ParseOptions object is yielded to the block which
+        #   can be configured before parsing. See Nokogiri::XML::ParseOptions for more information.
+        #
+        # [Returns] Nokogiri::HTML4::Document
+        def parse(
+          input,
+          url_ = nil, encoding_ = nil, options_ = XML::ParseOptions::DEFAULT_HTML,
+          url: url_, encoding: encoding_, options: options_
+        )
+          options = Nokogiri::XML::ParseOptions.new(options) if Integer === options
           yield options if block_given?
 
-          url ||= string_or_io.respond_to?(:path) ? string_or_io.path : nil
+          url ||= input.respond_to?(:path) ? input.path : nil
 
-          if string_or_io.respond_to?(:encoding)
-            unless string_or_io.encoding.name == "ASCII-8BIT"
-              encoding ||= string_or_io.encoding.name
+          if input.respond_to?(:encoding)
+            unless input.encoding == Encoding::ASCII_8BIT
+              encoding ||= input.encoding.name
             end
           end
 
-          if string_or_io.respond_to?(:read)
-            if string_or_io.is_a?(Pathname)
+          if input.respond_to?(:read)
+            if input.is_a?(Pathname)
               # resolve the Pathname to the file and open it as an IO object, see #2110
-              string_or_io = string_or_io.expand_path.open
-              url ||= string_or_io.path
+              input = input.expand_path.open
+              url ||= input.path
             end
 
             unless encoding
-              # Libxml2's parser has poor support for encoding
-              # detection.  First, it does not recognize the HTML5
-              # style meta charset declaration.  Secondly, even if it
-              # successfully detects an encoding hint, it does not
-              # re-decode or re-parse the preceding part which may be
-              # garbled.
-              #
-              # EncodingReader aims to perform advanced encoding
-              # detection beyond what Libxml2 does, and to emulate
-              # rewinding of a stream and make Libxml2 redo parsing
-              # from the start when an encoding hint is found.
-              string_or_io = EncodingReader.new(string_or_io)
+              input = EncodingReader.new(input)
               begin
-                return read_io(string_or_io, url, encoding, options.to_i)
-              rescue EncodingFound => e
+                return read_io(input, url, encoding, options.to_i)
+              rescue EncodingReader::EncodingFound => e
                 encoding = e.found_encoding
               end
             end
-            return read_io(string_or_io, url, encoding, options.to_i)
+            return read_io(input, url, encoding, options.to_i)
           end
 
           # read_memory pukes on empty docs
-          if string_or_io.nil? || string_or_io.empty?
+          if input.nil? || input.empty?
             return encoding ? new.tap { |i| i.encoding = encoding } : new
           end
 
-          encoding ||= EncodingReader.detect_encoding(string_or_io)
+          encoding ||= EncodingReader.detect_encoding(input)
 
-          read_memory(string_or_io, url, encoding, options.to_i)
-        end
-      end
-
-      class EncodingFound < StandardError # :nodoc:
-        attr_reader :found_encoding
-
-        def initialize(encoding)
-          @found_encoding = encoding
-          super(format("encoding found: %s", encoding))
-        end
-      end
-
-      class EncodingReader # :nodoc:
-        class SAXHandler < Nokogiri::XML::SAX::Document # :nodoc:
-          attr_reader :encoding
-
-          def initialize
-            @encoding = nil
-            super()
-          end
-
-          def start_element(name, attrs = [])
-            return unless name == "meta"
-            attr = Hash[attrs]
-            (charset = attr["charset"]) &&
-              (@encoding = charset)
-            (http_equiv = attr["http-equiv"]) &&
-              http_equiv.match(/\AContent-Type\z/i) &&
-              (content = attr["content"]) &&
-              (m = content.match(/;\s*charset\s*=\s*([\w-]+)/)) &&
-              (@encoding = m[1])
-          end
-        end
-
-        class JumpSAXHandler < SAXHandler
-          def initialize(jumptag)
-            @jumptag = jumptag
-            super()
-          end
-
-          def start_element(name, attrs = [])
-            super
-            throw(@jumptag, @encoding) if @encoding
-            throw(@jumptag, nil) if /\A(?:div|h1|img|p|br)\z/.match?(name)
-          end
-        end
-
-        def self.detect_encoding(chunk)
-          (m = chunk.match(/\A(<\?xml[ \t\r\n]+[^>]*>)/)) &&
-            (return Nokogiri.XML(m[1]).encoding)
-
-          if Nokogiri.jruby?
-            (m = chunk.match(/(<meta\s)(.*)(charset\s*=\s*([\w-]+))(.*)/i)) &&
-              (return m[4])
-            catch(:encoding_found) do
-              Nokogiri::HTML4::SAX::Parser.new(JumpSAXHandler.new(:encoding_found)).parse(chunk)
-              nil
-            end
-          else
-            handler = SAXHandler.new
-            parser = Nokogiri::HTML4::SAX::PushParser.new(handler)
-            begin
-              parser << chunk
-            rescue
-              Nokogiri::SyntaxError
-            end
-            handler.encoding
-          end
-        end
-
-        def initialize(io)
-          @io = io
-          @firstchunk = nil
-          @encoding_found = nil
-        end
-
-        # This method is used by the C extension so that
-        # Nokogiri::HTML4::Document#read_io() does not leak memory when
-        # EncodingFound is raised.
-        attr_reader :encoding_found
-
-        def read(len)
-          # no support for a call without len
-
-          unless @firstchunk
-            (@firstchunk = @io.read(len)) || (return nil)
-
-            # This implementation expects that the first call from
-            # htmlReadIO() is made with a length long enough (~1KB) to
-            # achieve advanced encoding detection.
-            if (encoding = EncodingReader.detect_encoding(@firstchunk))
-              # The first chunk is stored for the next read in retry.
-              raise @encoding_found = EncodingFound.new(encoding)
-            end
-          end
-          @encoding_found = nil
-
-          ret = @firstchunk.slice!(0, len)
-          if (len -= ret.length) > 0
-            (rest = @io.read(len)) && ret << (rest)
-          end
-          if ret.empty?
-            nil
-          else
-            ret
-          end
+          read_memory(input, url, encoding, options.to_i)
         end
       end
     end
